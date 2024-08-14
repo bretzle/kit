@@ -34,7 +34,10 @@ pub fn App(comptime config: Config) type {
             const allocator = gpa.allocator();
 
             var context = try config.context.create();
+            defer context.destroy();
+
             const window = try Window.create(allocator, options);
+            defer window.destroy();
 
             while (window.step()) {
                 context.update(&window.gui);
@@ -76,6 +79,7 @@ fn Device(comptime config: Config) type {
         timer: std.time.Timer,
         step_time: f64,
         want_quit: bool = false,
+        allocator: std.mem.Allocator,
 
         fn create(allocator: std.mem.Allocator, options: WindowOptions) !*Self {
             const self = try allocator.create(Self);
@@ -130,16 +134,20 @@ fn Device(comptime config: Config) type {
                 .hdc = hdc,
                 .timer = try std.time.Timer.start(),
                 .step_time = (if (options.fps != 0) 1.0 / options.fps else 0) * std.time.ns_per_s,
-                .gui = if (config.enable_gui) .{
-                    .textHeight = textHeight,
-                    .textWidth = textWidth,
-                } else {},
+                .gui = if (config.enable_gui) mui.Context.create(allocator, textHeight, textWidth) else {},
+                .allocator = allocator,
             };
 
             _ = os.SetWindowLongPtrA(hwnd, os.GWLP_USERDATA, @ptrCast(self));
             _ = os.ShowWindow(self.hwnd, os.SW_NORMAL);
 
             return self;
+        }
+
+        pub fn destroy(self: *Self) void {
+            if (config.enable_gui) self.gui.destroy();
+            self.allocator.free(self.canvas);
+            self.allocator.destroy(self);
         }
 
         fn step(self: *Self) bool {
@@ -203,8 +211,8 @@ fn Device(comptime config: Config) type {
         }
 
         fn drawGUI(self: *Self, hdc: os.HDC) void {
-            for (self.gui.root_list.constSlice()) |cnt| {
-                for (self.gui.command_list.buffer[cnt.head_idx..cnt.tail_idx]) |cmd| {
+            for (self.gui.root_list.items) |cnt| {
+                for (self.gui.command_list.items[cnt.head_idx..cnt.tail_idx]) |cmd| {
                     switch (cmd) {
                         .clip => |data| {
                             _ = os.SelectClipRgn(hdc, null);

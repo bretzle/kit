@@ -204,12 +204,12 @@ pub const Context = struct {
     cmd_idx: usize = 0,
 
     // stacks
-    command_list: Stack(Command, 1024) = .{},
-    root_list: Stack(*Container, 16) = .{},
-    container_stack: Stack(*Container, 16) = .{},
-    clip_stack: Stack(Rect, 16) = .{},
-    id_stack: Stack(Id, 16) = .{},
-    layout_stack: Stack(Layout, 8) = .{},
+    command_list: std.ArrayList(Command),
+    root_list: std.ArrayList(*Container),
+    container_stack: std.ArrayList(*Container),
+    clip_stack: std.ArrayList(Rect),
+    id_stack: std.ArrayList(Id),
+    layout_stack: std.ArrayList(Layout),
     text_stack: std.BoundedArray(u8, 16384) = .{},
 
     // retained pools
@@ -228,9 +228,31 @@ pub const Context = struct {
     key_pressed: i32 = 0,
     input_text: [32]u8 = [_]u8{0} ** 32,
 
+    pub fn create(allocator: std.mem.Allocator, textHeight: *const fn () i32, textWidth: *const fn ([]const u8) i32) Self {
+        return .{
+            .textHeight = textHeight,
+            .textWidth = textWidth,
+            .command_list = std.ArrayList(Command).init(allocator),
+            .root_list = std.ArrayList(*Container).init(allocator),
+            .container_stack = std.ArrayList(*Container).init(allocator),
+            .clip_stack = std.ArrayList(Rect).init(allocator),
+            .id_stack = std.ArrayList(Id).init(allocator),
+            .layout_stack = std.ArrayList(Layout).init(allocator),
+        };
+    }
+
+    pub fn destroy(self: *Self) void {
+        self.command_list.deinit();
+        self.root_list.deinit();
+        self.container_stack.deinit();
+        self.clip_stack.deinit();
+        self.id_stack.deinit();
+        self.layout_stack.deinit();
+    }
+
     pub fn begin(ctx: *Self) void {
-        ctx.command_list.len = 0;
-        ctx.root_list.len = 0;
+        ctx.command_list.items.len = 0;
+        ctx.root_list.items.len = 0;
         ctx.text_stack.len = 0;
         ctx.scroll_target = null;
         ctx.hover_root = ctx.next_hover_root;
@@ -241,10 +263,10 @@ pub const Context = struct {
 
     pub fn end(ctx: *Self) void {
         // check stacks
-        assert(ctx.container_stack.len == 0);
-        assert(ctx.clip_stack.len == 0);
-        assert(ctx.id_stack.len == 0);
-        assert(ctx.layout_stack.len == 0);
+        assert(ctx.container_stack.items.len == 0);
+        assert(ctx.clip_stack.items.len == 0);
+        assert(ctx.id_stack.items.len == 0);
+        assert(ctx.layout_stack.items.len == 0);
 
         // handle scroll input
         if (ctx.scroll_target) |target| {
@@ -270,7 +292,7 @@ pub const Context = struct {
         ctx.last_mouse_pos = ctx.mouse_pos;
 
         // sort root containers by zindex
-        std.mem.sort(*Container, ctx.root_list.slice(), {}, Container.compare);
+        std.mem.sort(*Container, ctx.root_list.items, {}, Container.compare);
     }
 
     pub fn setFocus(ctx: *Self, id: Id) void {
@@ -279,7 +301,7 @@ pub const Context = struct {
     }
 
     pub fn getId(ctx: *Self, data: []const u8) Id {
-        const res = ctx.id_stack.peek() orelse HASH_INITIAL;
+        const res = ctx.id_stack.getLastOrNull() orelse HASH_INITIAL;
         var hasher = std.hash.Fnv1a_32{ .value = res };
         hasher.update(data);
         const hash = hasher.final();
@@ -292,20 +314,20 @@ pub const Context = struct {
     }
 
     pub fn popId(ctx: *Self) void {
-        ctx.id_stack.pop();
+        _ = ctx.id_stack.pop();
     }
 
     pub fn mu_push_clip_rect(ctx: *Self, rect: Rect) void {
         const last = ctx.mu_get_clip_rect();
-        ctx.clip_stack.push(rect.intersect(last));
+        ctx.clip_stack.append(rect.intersect(last)) catch unreachable;
     }
 
     pub fn mu_pop_clip_rect(ctx: *Self) void {
-        ctx.clip_stack.pop();
+        _ = ctx.clip_stack.pop();
     }
 
     pub fn mu_get_clip_rect(ctx: *Self) Rect {
-        return ctx.clip_stack.peek().?;
+        return ctx.clip_stack.getLast();
     }
 
     pub fn mu_check_clip(ctx: *Self, r: Rect) Clip {
@@ -316,7 +338,7 @@ pub const Context = struct {
     }
 
     pub fn mu_get_current_container(ctx: *Self) *Container {
-        return ctx.container_stack.peek() orelse unreachable;
+        return ctx.container_stack.getLast();
     }
 
     pub fn mu_get_container(ctx: *Self, name: []const u8) *Container {
@@ -370,16 +392,16 @@ pub const Context = struct {
     }
 
     pub fn mu_set_clip(ctx: *Self, rect: Rect) void {
-        ctx.command_list.push(.{ .clip = .{ .rect = rect } });
+        ctx.command_list.append(.{ .clip = .{ .rect = rect } }) catch unreachable;
     }
 
     pub fn mu_draw_rect(ctx: *Self, rect: Rect, color: Color) void {
         const r = rect.intersect(ctx.mu_get_clip_rect());
         if (r.w > 0 and r.h > 0) {
-            ctx.command_list.push(.{ .rect = .{
+            ctx.command_list.append(.{ .rect = .{
                 .rect = r,
                 .color = color,
-            } });
+            } }) catch unreachable;
         }
     }
 
@@ -399,11 +421,11 @@ pub const Context = struct {
 
         // add command
         const str_start = ctx.mu_push_text(str);
-        ctx.command_list.push(.{ .text = .{
+        ctx.command_list.append(.{ .text = .{
             .str = str_start,
             .pos = pos,
             .color = color,
-        } });
+        } }) catch unreachable;
 
         // reset clipping if it was set
         if (clipped != .none) mu_set_clip(ctx, Rect.unclipped);
@@ -416,11 +438,11 @@ pub const Context = struct {
         if (clipped == .part) ctx.mu_set_clip(ctx.mu_get_clip_rect());
 
         // do icon command
-        ctx.command_list.push(.{ .icon = .{
+        ctx.command_list.append(.{ .icon = .{
             .id = id,
             .rect = rect,
             .color = color,
-        } });
+        } }) catch unreachable;
 
         // reset clipping if it was set
         if (clipped != .none) ctx.mu_set_clip(Rect.unclipped);
@@ -453,7 +475,7 @@ pub const Context = struct {
 
     pub fn mu_layout_end_column(ctx: *Self) void {
         const b = ctx.getLayout();
-        ctx.layout_stack.pop();
+        _ = ctx.layout_stack.pop();
         // inherit position/next_row/max from child layout if they are greater
         const a = ctx.getLayout();
         a.position[0] = @max(a.position[0], b.position[0] + b.body.x - a.body.x);
@@ -721,7 +743,7 @@ pub const Context = struct {
         const result = ctx.headerImpl(label, true, opt);
         if (result) {
             ctx.getLayout().indent += ctx.style.indent;
-            ctx.id_stack.push(ctx.last_id);
+            ctx.id_stack.append(ctx.last_id) catch unreachable;
         }
         return result;
     }
@@ -735,7 +757,7 @@ pub const Context = struct {
         const id = ctx.getId(title);
         const cnt = ctx.getContainerInit(id, opt) orelse return false;
         if (cnt.open == 0) return false;
-        ctx.id_stack.push(id);
+        ctx.id_stack.append(id) catch unreachable;
 
         if (cnt.rect.w == 0) cnt.rect = bounds;
         ctx.beginRootContainer(cnt);
@@ -885,15 +907,15 @@ pub const Context = struct {
     }
 
     fn beginRootContainer(ctx: *Self, cnt: *Container) void {
-        ctx.container_stack.push(cnt);
-        ctx.root_list.push(cnt);
+        ctx.container_stack.append(cnt) catch unreachable;
+        ctx.root_list.append(cnt) catch unreachable;
 
-        cnt.head_idx = ctx.command_list.len;
+        cnt.head_idx = @truncate(ctx.command_list.items.len);
         if (cnt.rect.overlaps(ctx.mouse_pos) and (ctx.next_hover_root == null or cnt.zindex > ctx.next_hover_root.?.zindex)) {
             ctx.next_hover_root = cnt;
         }
 
-        ctx.clip_stack.push(Rect.unclipped);
+        ctx.clip_stack.append(Rect.unclipped) catch unreachable;
     }
 
     fn pushContainerBody(ctx: *Self, cnt: *Container, body: Rect, opt: Opt) void {
@@ -908,7 +930,7 @@ pub const Context = struct {
             .body = .{ .x = body.x - scroll[0], .y = body.y - scroll[1], .w = body.w, .h = body.h },
             .max = .{ -0x1000000, -0x1000000 },
         };
-        ctx.layout_stack.push(layout);
+        ctx.layout_stack.append(layout) catch unreachable;
         ctx.mu_layout_row(1, null, 0);
     }
 
@@ -1001,12 +1023,12 @@ pub const Context = struct {
     }
 
     fn getLayout(ctx: *Self) *Layout {
-        return ctx.layout_stack.last();
+        return &ctx.layout_stack.items[ctx.layout_stack.items.len - 1];
     }
 
     fn endRootContainer(ctx: *Self) void {
         const cnt = ctx.mu_get_current_container();
-        cnt.tail_idx = ctx.command_list.len;
+        cnt.tail_idx = @truncate(ctx.command_list.items.len);
         ctx.mu_pop_clip_rect();
         ctx.popContainer();
     }
@@ -1016,8 +1038,8 @@ pub const Context = struct {
         const layout = ctx.getLayout();
         cnt.content_size[0] = layout.max[0] - layout.body.x;
         cnt.content_size[1] = layout.max[1] - layout.body.y;
-        ctx.container_stack.pop();
-        ctx.layout_stack.pop();
+        _ = ctx.container_stack.pop();
+        _ = ctx.layout_stack.pop();
         ctx.popId();
     }
 
@@ -1073,50 +1095,16 @@ pub const Context = struct {
 
     fn inHoverRoot(ctx: *Self) bool {
         if (ctx.hover_root) |root| {
-            const len = ctx.container_stack.len;
+            const len = ctx.container_stack.items.len;
             for (0..len) |i| {
-                if (ctx.container_stack.buffer[len - i - 1] == root) return true;
-                if (ctx.container_stack.buffer[len - i - 1].head_idx != 0xFFFF_FFFF) break;
+                if (ctx.container_stack.items[len - i - 1] == root) return true;
+                if (ctx.container_stack.items[len - i - 1].head_idx != 0xFFFF_FFFF) break;
             }
         }
 
         return false;
     }
 };
-
-fn Stack(comptime T: type, comptime size: comptime_int) type {
-    return struct {
-        const Self = @This();
-
-        buffer: [size]T = undefined,
-        len: u32 = 0,
-
-        pub fn push(self: *Self, val: T) void {
-            self.buffer[self.len] = val;
-            self.len += 1;
-        }
-
-        pub fn peek(self: *const Self) ?T {
-            return if (self.len == 0) null else self.buffer[self.len - 1];
-        }
-
-        pub fn last(self: *Self) *T {
-            return &self.buffer[self.len - 1];
-        }
-
-        pub fn pop(self: *Self) void {
-            self.len -= 1;
-        }
-
-        pub fn slice(self: *Self) []T {
-            return self.buffer[0..self.len];
-        }
-
-        pub fn constSlice(self: *const Self) []const T {
-            return self.buffer[0..self.len];
-        }
-    };
-}
 
 fn Pool(comptime size: comptime_int) type {
     return struct {
