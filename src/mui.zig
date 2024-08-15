@@ -65,8 +65,6 @@ pub const Command = union(enum) {
     icon: struct { rect: Rect, id: Icon, color: Color },
 };
 
-pub const Real = f32;
-
 pub const Vec2 = @Vector(2, i32);
 
 pub const Rect = struct {
@@ -145,7 +143,7 @@ pub const Container = struct {
     content_size: Vec2 = .{ 0, 0 },
     scroll: Vec2 = .{ 0, 0 },
     zindex: i32 = 0,
-    open: i32,
+    open: bool,
 
     pub fn compare(_: void, lhs: *Container, rhs: *Container) bool {
         return lhs.zindex < rhs.zindex;
@@ -194,7 +192,7 @@ pub const Context = struct {
     last_id: Id = 0,
     last_rect: Rect = .{},
     last_zindex: i32 = 0,
-    updated_focus: i32 = 0, // bool?
+    updated_focus: bool = false,
     frame: i32 = 0,
     hover_root: ?*Container = null,
     next_hover_root: ?*Container = null,
@@ -274,8 +272,8 @@ pub const Context = struct {
         }
 
         // unset focus if focus id was not touched this frame
-        if (ctx.updated_focus == 0) ctx.focus = 0;
-        ctx.updated_focus = 0;
+        if (!ctx.updated_focus) ctx.focus = 0;
+        ctx.updated_focus = false;
 
         // bring hover root to front if mouse was pressed
         if (ctx.next_hover_root) |root| {
@@ -297,7 +295,7 @@ pub const Context = struct {
 
     pub fn setFocus(ctx: *Self, id: Id) void {
         ctx.focus = id;
-        ctx.updated_focus = 1;
+        ctx.updated_focus = true;
     }
 
     pub fn getId(ctx: *Self, data: []const u8) Id {
@@ -568,7 +566,7 @@ pub const Context = struct {
     pub fn mu_update_control(ctx: *Self, id: Id, rect: Rect, opt: Opt) void {
         const mouseover = ctx.mu_mouse_over(rect);
 
-        if (ctx.focus == id) ctx.updated_focus = 1;
+        if (ctx.focus == id) ctx.updated_focus = true;
         if (opt.nointeract) return;
         if (mouseover and ctx.mouse_down == .none) ctx.hover = id;
 
@@ -726,7 +724,7 @@ pub const Context = struct {
         return result;
     }
 
-    pub fn mu_number_ex(ctx: *Self, value: []Real, step: Real, fmt: []const u8, opt: i32) i32 {
+    pub fn mu_number_ex(ctx: *Self, value: []f32, step: f32, fmt: []const u8, opt: i32) i32 {
         _ = ctx; // autofix
         _ = value; // autofix
         _ = step; // autofix
@@ -756,7 +754,7 @@ pub const Context = struct {
     pub fn beginWindowEx(ctx: *Self, title: []const u8, bounds: Rect, opt: Opt) bool {
         const id = ctx.getId(title);
         const cnt = ctx.getContainerInit(id, opt) orelse return false;
-        if (cnt.open == 0) return false;
+        if (!cnt.open) return false;
         ctx.id_stack.append(id) catch unreachable;
 
         if (cnt.rect.w == 0) cnt.rect = bounds;
@@ -797,7 +795,7 @@ pub const Context = struct {
                 ctx.mu_draw_icon(.close, r, ctx.style.colors.get(.title_text));
                 ctx.mu_update_control(iid, r, opt);
                 if (ctx.mouse_pressed == .left and iid == ctx.focus) {
-                    cnt.open = 0;
+                    cnt.open = false;
                 }
             }
         }
@@ -824,7 +822,7 @@ pub const Context = struct {
         }
 
         if (opt.popup and ctx.mouse_pressed != .none and ctx.hover_root != cnt) {
-            cnt.open = 0;
+            cnt.open = false;
         }
 
         ctx.mu_push_clip_rect(cnt.body);
@@ -842,7 +840,7 @@ pub const Context = struct {
         ctx.hover_root = cnt;
         ctx.next_hover_root = cnt;
         cnt.rect = .{ .x = ctx.mouse_pos[0], .y = ctx.mouse_pos[1], .w = 1, .h = 1 };
-        cnt.open = 1;
+        cnt.open = true;
         ctx.mu_bring_to_front(cnt);
     }
 
@@ -885,7 +883,7 @@ pub const Context = struct {
     fn getContainerInit(ctx: *Self, id: Id, opt: Opt) ?*Container {
         const maybe_idx = ctx.container_pool.get(id);
         if (maybe_idx) |idx| {
-            if (ctx.containers[idx].open != 0 or !opt.closed) {
+            if (ctx.containers[idx].open or !opt.closed) {
                 ctx.container_pool.update(idx, ctx.frame);
             }
             return &ctx.containers[idx];
@@ -899,7 +897,7 @@ pub const Context = struct {
         cnt.* = .{
             .head_idx = 0xFFFF_FFFF,
             .tail_idx = 0xFFFF_FFFF,
-            .open = 1,
+            .open = true,
         };
 
         ctx.mu_bring_to_front(cnt);
