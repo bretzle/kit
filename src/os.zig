@@ -4,6 +4,7 @@ pub const WINAPI = std.os.windows.WINAPI;
 
 pub const BOOL = c_int;
 pub const CHAR = u8;
+pub const WCHAR = u16;
 pub const ATOM = u16;
 pub const HBRUSH = HGDIOBJ;
 pub const HCURSOR = *opaque {};
@@ -15,6 +16,7 @@ pub const HWND = std.os.windows.HWND;
 pub const HDC = *opaque {};
 pub const INT = c_int;
 pub const LPCSTR = [*:0]const CHAR;
+pub const LPCWSTR = [*:0]const WCHAR;
 pub const LPCVOID = *const anyopaque;
 pub const LPVOID = *anyopaque;
 pub const UINT = c_uint;
@@ -33,6 +35,8 @@ pub const HGDIOBJ = *opaque {};
 pub const HRGN = HGDIOBJ;
 pub const HBITMAP = HGDIOBJ;
 pub const HFONT = HGDIOBJ;
+// pub const HRSRC = HGDIOBJ;
+// pub const HGLOBAL = HGDIOBJ;
 
 pub const COLORREF = DWORD;
 
@@ -396,7 +400,9 @@ pub extern "gdi32" fn SetTextColor(hdc: HDC, color: COLORREF) callconv(WINAPI) C
 
 pub const ETO_OPAQUE = 0x0002;
 
-pub extern "gdi32" fn ExtTextOutA(hdc: HDC, x: i32, y: i32, options: UINT, lprect: ?*const RECT, lpString: ?LPCSTR, c: UINT, lpDx: ?*const i32) callconv(WINAPI) BOOL;
+// pub extern "gdi32" fn ExtTextOutA(hdc: HDC, x: i32, y: i32, options: UINT, lprect: ?*const RECT, lpString: ?LPCSTR, c: UINT, lpDx: ?*const i32) callconv(WINAPI) BOOL;
+
+pub extern "gdi32" fn ExtTextOutW(hdc: HDC, x: i32, y: i32, options: UINT, lprect: ?*const RECT, lpString: ?LPCWSTR, c: UINT, lpDx: ?*const i32) callconv(WINAPI) BOOL;
 
 pub extern "uxtheme" fn BufferedPaintInit() callconv(WINAPI) HRESULT;
 
@@ -440,3 +446,5 @@ pub extern "gdi32" fn GetTextExtentPoint32A(hdc: ?HDC, lpString: LPCSTR, c: i32,
 
 pub const MK_LBUTTON = 1;
 pub const MK_RBUTTON = 2;
+
+pub extern "gdi32" fn CreateFontA(cHeight: i32, cWidth: i32, cEscapement: i32, cOrientation: i32, cWeight: i32, bItalic: u32, bUnderline: u32, bStrikeOut: u32, iCharSet: u32, iOutPrecision: u32, iClipPrecision: u32, iQuality: u32, iPitchAndFamily: u32, pszFaceName: ?LPCSTR) callconv(WINAPI) ?HFONT;

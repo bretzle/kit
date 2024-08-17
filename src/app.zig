@@ -76,6 +76,7 @@ fn Device(comptime config: Config) type {
 
         hwnd: os.HWND,
         hdc: os.HDC,
+        hfont: os.HFONT,
         timer: std.time.Timer,
         step_time: f64,
         want_quit: bool = false,
@@ -88,6 +89,23 @@ fn Device(comptime config: Config) type {
             const class = @typeName(Context);
             const hinstance = os.GetModuleHandleA(null) orelse unreachable;
             const icon = os.LoadIconA(hinstance, @ptrFromInt(101));
+
+            const hfont = os.CreateFontA(
+                16,
+                0,
+                0,
+                0,
+                400,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                "Arial",
+            ) orelse unreachable;
 
             _ = os.RegisterClassExA(&.{
                 .style = os.CS_HREDRAW | os.CS_VREDRAW | os.CS_OWNDC,
@@ -124,6 +142,7 @@ fn Device(comptime config: Config) type {
             _ = os.DwmSetWindowAttribute(hwnd, os.DWMWA_WINDOW_CORNER_PREFERENCE, &@as(i32, 3), @sizeOf(i32));
 
             const hdc = os.GetDC(hwnd) orelse unreachable;
+            _ = os.SelectObject(hdc, hfont);
             textHDC = hdc;
 
             self.* = .{
@@ -132,6 +151,7 @@ fn Device(comptime config: Config) type {
                 .height = @intCast(config.height * options.scale),
                 .hwnd = hwnd,
                 .hdc = hdc,
+                .hfont = hfont,
                 .timer = try std.time.Timer.start(),
                 .step_time = (if (options.fps != 0) 1.0 / options.fps else 0) * std.time.ns_per_s,
                 .gui = if (config.enable_gui) mui.Context.create(allocator, textHeight, textWidth) else {},
@@ -224,29 +244,33 @@ fn Device(comptime config: Config) type {
                             _ = os.FillRect(hdc, &rc, hbr);
                             _ = os.DeleteObject(hbr);
                         },
-                        .text => |data| {
-                            _ = os.SetBkMode(hdc, os.TRANSPARENT);
-                            _ = os.SetTextColor(hdc, data.color.windows());
-                            _ = os.ExtTextOutA(hdc, data.pos[0], data.pos[1], os.ETO_OPAQUE, null, @ptrCast(data.str), @truncate(data.str.len), null);
-                        },
+                        .text => |data| drawText(hdc, data.color.windows(), data.str, data.pos[0], data.pos[1]),
                         .icon => |data| {
-                            const char = switch (data.id) {
+                            const text = switch (data.id) {
                                 .check => "X",
                                 .close => "x",
                                 .collapsed => ">",
                                 .expanded => "v",
                             };
-                            const size = textSize(char);
+                            const size = textSize(text);
                             const x = data.rect.x + @divFloor(data.rect.w - size.cx, 2);
                             const y = data.rect.y + @divFloor(data.rect.h - size.cy, 2);
 
-                            _ = os.SetBkMode(hdc, os.TRANSPARENT);
-                            _ = os.SetTextColor(hdc, data.color.windows());
-                            _ = os.ExtTextOutA(hdc, x, y, os.ETO_OPAQUE, null, @ptrCast(char), 1, null);
+                            drawText(hdc, data.color.windows(), text, x, y);
                         },
                     }
                 }
             }
+        }
+
+        var textScratch: [256]u16 = undefined;
+        inline fn drawText(hdc: os.HDC, color: u32, text: []const u8, x: i32, y: i32) void {
+            _ = os.SetBkMode(hdc, os.TRANSPARENT);
+            _ = os.SetTextColor(hdc, color);
+
+            const len = std.unicode.utf8ToUtf16Le(&textScratch, text) catch unreachable;
+
+            _ = os.ExtTextOutW(hdc, x, y, os.ETO_OPAQUE, null, @ptrCast(&textScratch), @truncate(len), null);
         }
 
         fn wndproc(hwnd: os.HWND, uMsg: os.UINT, wParam: os.WPARAM, lParam: os.LPARAM) callconv(os.WINAPI) os.LRESULT {
@@ -263,6 +287,7 @@ fn Device(comptime config: Config) type {
                     var hdc: os.HDC = undefined;
                     const paint = os.BeginBufferedPaint(self.hdc, &rc, .BPBF_COMPATIBLEBITMAP, null, &hdc) orelse return 0;
                     defer _ = os.EndBufferedPaint(paint, 1);
+                    _ = os.SelectObject(hdc, self.hfont);
 
                     self.drawCanvas(hdc);
                     if (config.enable_gui) self.drawGUI(hdc);
