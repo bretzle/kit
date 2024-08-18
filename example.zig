@@ -1,5 +1,6 @@
 const std = @import("std");
 const kit = @import("kit");
+const Color = kit.RGBA;
 
 const MyApp = kit.App(.{
     .context = Game,
@@ -8,8 +9,6 @@ const MyApp = kit.App(.{
     .height = 470,
     .enable_gui = true,
 });
-
-const Color = packed struct { r: u5 = 0, g: u5 = 0, b: u5 = 0, a: u1 = 1 };
 
 const Game = struct {
     checks: [3]bool = .{ true, false, true },

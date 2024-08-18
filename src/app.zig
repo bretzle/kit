@@ -3,7 +3,9 @@ const util = @import("util.zig");
 const os = @import("os.zig");
 const mui = @import("mui.zig");
 
+pub const RGBA = util.Color;
 pub const Gui = mui.Context;
+pub const png = @import("png.zig");
 
 pub const Config = struct {
     context: type,
