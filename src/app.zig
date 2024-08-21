@@ -6,6 +6,7 @@ const mui = @import("mui.zig");
 pub const RGBA = util.Color;
 pub const Gui = mui.Context;
 pub const png = @import("png.zig");
+pub const math = @import("math.zig");
 
 pub const Config = struct {
     context: type,
@@ -241,12 +242,12 @@ fn Device(comptime config: Config) type {
                             _ = os.IntersectClipRect(hdc, data.rect.x, data.rect.y, data.rect.x + data.rect.w, data.rect.y + data.rect.h);
                         },
                         .rect => |data| {
-                            const rc = data.rect.windows();
-                            const hbr = os.CreateSolidBrush(data.color.windows());
+                            const rc = winrect(data.rect);
+                            const hbr = os.CreateSolidBrush(wincolor(data.color));
                             _ = os.FillRect(hdc, &rc, hbr);
                             _ = os.DeleteObject(hbr);
                         },
-                        .text => |data| drawText(hdc, data.color.windows(), data.str, data.pos[0], data.pos[1]),
+                        .text => |data| drawText(hdc, wincolor(data.color), data.str, data.pos[0], data.pos[1]),
                         .icon => |data| {
                             const text = switch (data.id) {
                                 .check => "X",
@@ -258,7 +259,7 @@ fn Device(comptime config: Config) type {
                             const x = data.rect.x + @divFloor(data.rect.w - size.cx, 2);
                             const y = data.rect.y + @divFloor(data.rect.h - size.cy, 2);
 
-                            drawText(hdc, data.color.windows(), text, x, y);
+                            drawText(hdc, wincolor(data.color), text, x, y);
                         },
                     }
                 }
@@ -323,6 +324,14 @@ fn Device(comptime config: Config) type {
             var size: os.SIZE = undefined;
             _ = os.GetTextExtentPoint32A(textHDC, @ptrCast(text), @intCast(text.len), &size);
             return size;
+        }
+
+        inline fn winrect(self: math.Rect) os.RECT {
+            return os.RECT{ .left = self.x, .top = self.y, .right = self.x + self.w, .bottom = self.y + self.h };
+        }
+
+        inline fn wincolor(self: math.Color) os.COLORREF {
+            return @as(os.COLORREF, @bitCast(self)) & 0x00FF_FFFF;
         }
     };
 }

@@ -23,15 +23,15 @@ const Game = struct {
         defer g.end();
 
         if (g.beginWindowEx("Demo Window", .{ .x = 10, .y = 10, .w = 300, .h = 450 }, .{})) {
-            defer g.mu_end_window();
+            defer g.endWindow();
 
-            const win = g.mu_get_current_container();
+            const win = g.getCurrentContainer();
             win.rect.w = @max(win.rect.w, 240);
             win.rect.h = @max(win.rect.h, 300);
 
             // window info
             if (g.mu_header_ex("Window Info", .{})) {
-                const cnt = g.mu_get_current_container();
+                const cnt = g.getCurrentContainer();
                 var buf: [64]u8 = undefined;
 
                 g.mu_layout_row(2, &.{ 62, -1 }, 0);
@@ -49,10 +49,10 @@ const Game = struct {
                 if (g.mu_button("Button 2")) std.debug.print("Pressed button 2\n", .{});
                 g.mu_label("Test buttons 2:");
                 if (g.mu_button("Button 3")) std.debug.print("Pressed button 3\n", .{});
-                if (g.mu_button("Popup")) g.mu_open_popup("Test Popup");
+                if (g.mu_button("Popup")) g.openPopup("Test Popup");
 
-                if (g.mu_begin_popup("Test Popup")) {
-                    defer g.mu_end_popup();
+                if (g.beginPopup("Test Popup")) {
+                    defer g.endPopup();
                     _ = g.mu_button("Hello");
                     _ = g.mu_button("World");
                 }
@@ -114,10 +114,10 @@ const Game = struct {
 
                 // color preview
                 const r = g.mu_layout_next();
-                g.mu_draw_rect(r, .{ .r = self.bg[0], .g = self.bg[1], .b = self.bg[2], .a = 255 });
+                g.drawRect(r, .{ .r = self.bg[0], .g = self.bg[1], .b = self.bg[2], .a = 255 });
                 var buf: [7]u8 = undefined;
                 const text = std.fmt.bufPrint(&buf, "#{X:0>2}{X:0>2}{X:0>2}", .{ self.bg[0], self.bg[1], self.bg[2] }) catch unreachable;
-                g.mu_draw_control_text(text, r, .text, .{ .aligncenter = true });
+                g.drawControlText(text, r, .text, .{ .aligncenter = true });
             }
         }
     }

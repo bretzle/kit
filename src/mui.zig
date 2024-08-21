@@ -1,6 +1,13 @@
 const std = @import("std");
 const os = @import("os.zig");
+const math = @import("math.zig");
 const assert = std.debug.assert;
+
+const Vec2 = math.Vec2;
+const Rect = math.Rect;
+const Color = math.Color;
+
+const unclipped = Rect{ .w = 0x1000000, .h = 0x1000000 };
 
 pub const Clip = enum { none, part, all };
 
@@ -55,68 +62,14 @@ pub const Key = packed struct {
     ret: bool = false,
 };
 
-pub const Id = u32;
-const HASH_INITIAL = 2166136261;
+pub const Id = enum(u32) { invalid, _ };
+const HASH_INITIAL: Id = @enumFromInt(2166136261);
 
 pub const Command = union(enum) {
     clip: struct { rect: Rect },
     rect: struct { rect: Rect, color: Color },
     text: struct { pos: Vec2, color: Color, str: []const u8 },
     icon: struct { rect: Rect, id: Icon, color: Color },
-};
-
-pub const Vec2 = @Vector(2, i32);
-
-pub const Rect = struct {
-    x: i32 = 0,
-    y: i32 = 0,
-    w: i32 = 0,
-    h: i32 = 0,
-
-    const unclipped = .{ .w = 0x1000000, .h = 0x1000000 };
-
-    fn overlaps(r: Rect, p: Vec2) bool {
-        return p[0] >= r.x and p[0] < r.x + r.w and p[1] >= r.y and p[1] < r.y + r.h;
-    }
-
-    fn expand(r: Rect, n: i32) Rect {
-        return .{
-            .x = r.x - n,
-            .y = r.y - n,
-            .w = r.w + n * 2,
-            .h = r.h + n * 2,
-        };
-    }
-
-    fn intersect(r1: Rect, r2: Rect) Rect {
-        const x1 = @max(r1.x, r2.x);
-        const y1 = @max(r1.y, r2.y);
-        var x2 = @min(r1.x + r1.w, r2.x + r2.w);
-        var y2 = @min(r1.y + r1.h, r2.y + r2.h);
-        if (x2 < x1) x2 = x1;
-        if (y2 < y1) y2 = y1;
-        return .{ .x = x1, .y = y1, .w = x2 - x1, .h = y2 - y1 };
-    }
-
-    pub inline fn windows(self: Rect) os.RECT {
-        return os.RECT{ .left = self.x, .top = self.y, .right = self.x + self.w, .bottom = self.y + self.h };
-    }
-};
-
-pub const Color = packed struct {
-    r: u8,
-    g: u8,
-    b: u8,
-    a: u8,
-
-    pub inline fn windows(self: Color) os.COLORREF {
-        return @as(os.COLORREF, @bitCast(self)) & 0x00FF_FFFF;
-    }
-};
-
-pub const PoolItem = struct {
-    id: Id = 0,
-    last_update: i32 = 0,
 };
 
 pub const Layout = struct {
@@ -187,18 +140,18 @@ pub const Context = struct {
 
     // core state
     style: *Style = &Style.default,
-    hover: Id = 0,
-    focus: Id = 0,
-    last_id: Id = 0,
+    hover: Id = .invalid,
+    focus: Id = .invalid,
+    last_id: Id = .invalid,
     last_rect: Rect = .{},
     last_zindex: i32 = 0,
     updated_focus: bool = false,
-    frame: i32 = 0,
+    frame: u32 = 0,
     hover_root: ?*Container = null,
     next_hover_root: ?*Container = null,
     scroll_target: ?*Container = null,
     number_edit_buf: [127]u8 = [_]u8{0} ** 127,
-    number_edit: Id = 0,
+    number_edit: Id = .invalid,
     cmd_idx: usize = 0,
 
     // stacks
@@ -211,9 +164,8 @@ pub const Context = struct {
     text_stack: std.BoundedArray(u8, 16384) = .{},
 
     // retained pools
-    container_pool: Pool(16) = undefined,
-    containers: [16]Container = undefined,
-    treenode_pool: Pool(16) = undefined,
+    container_pool: Pool2(Container, 16) = undefined,
+    treenode_pool: Pool2(void, 16) = undefined,
 
     // input state
     mouse_pos: Vec2 = .{ 0, 0 },
@@ -272,13 +224,13 @@ pub const Context = struct {
         }
 
         // unset focus if focus id was not touched this frame
-        if (!ctx.updated_focus) ctx.focus = 0;
+        if (!ctx.updated_focus) ctx.focus = .invalid;
         ctx.updated_focus = false;
 
         // bring hover root to front if mouse was pressed
         if (ctx.next_hover_root) |root| {
             if (ctx.mouse_pressed != .none and root.zindex < ctx.last_zindex and root.zindex >= 0) {
-                ctx.mu_bring_to_front(root);
+                ctx.bringToFront(root);
             }
         }
 
@@ -300,11 +252,10 @@ pub const Context = struct {
 
     pub fn getId(ctx: *Self, data: []const u8) Id {
         const res = ctx.id_stack.getLastOrNull() orelse HASH_INITIAL;
-        var hasher = std.hash.Fnv1a_32{ .value = res };
+        var hasher = std.hash.Fnv1a_32{ .value = @intFromEnum(res) };
         hasher.update(data);
-        const hash = hasher.final();
-        ctx.last_id = hash;
-        return hash;
+        ctx.last_id = @enumFromInt(hasher.final());
+        return ctx.last_id;
     }
 
     pub fn pushId(ctx: *Self, data: []const u8) void {
@@ -315,41 +266,41 @@ pub const Context = struct {
         _ = ctx.id_stack.pop();
     }
 
-    pub fn mu_push_clip_rect(ctx: *Self, rect: Rect) void {
-        const last = ctx.mu_get_clip_rect();
+    pub fn pushClipRect(ctx: *Self, rect: Rect) void {
+        const last = ctx.getClipRect();
         ctx.clip_stack.append(rect.intersect(last)) catch unreachable;
     }
 
-    pub fn mu_pop_clip_rect(ctx: *Self) void {
+    pub fn popClipRect(ctx: *Self) void {
         _ = ctx.clip_stack.pop();
     }
 
-    pub fn mu_get_clip_rect(ctx: *Self) Rect {
+    pub fn getClipRect(ctx: *Self) Rect {
         return ctx.clip_stack.getLast();
     }
 
-    pub fn mu_check_clip(ctx: *Self, r: Rect) Clip {
-        const cr = ctx.mu_get_clip_rect();
+    pub fn checkClip(ctx: *Self, r: Rect) Clip {
+        const cr = ctx.getClipRect();
         if (r.x > cr.x + cr.w or r.x + r.w < cr.x or r.y > cr.y + cr.h or r.y + r.h < cr.y) return .all;
         if (r.x >= cr.x and r.x + r.w <= cr.x + cr.w and r.y >= cr.y and r.y + r.h <= cr.y + cr.h) return .none;
         return .part;
     }
 
-    pub fn mu_get_current_container(ctx: *Self) *Container {
+    pub fn getCurrentContainer(ctx: *Self) *Container {
         return ctx.container_stack.getLast();
     }
 
-    pub fn mu_get_container(ctx: *Self, name: []const u8) *Container {
+    pub fn getContainer(ctx: *Self, name: []const u8) *Container {
         const id = ctx.getId(name);
         return ctx.getContainerInit(id, .{}) orelse unreachable;
     }
 
-    pub fn mu_bring_to_front(ctx: *Self, cnt: *Container) void {
+    pub fn bringToFront(ctx: *Self, cnt: *Container) void {
         ctx.last_zindex += 1;
         cnt.zindex = ctx.last_zindex;
     }
 
-    pub fn mu_push_text(ctx: *Self, str: []const u8) []const u8 {
+    pub fn pushText(ctx: *Self, str: []const u8) []const u8 {
         const start = ctx.text_stack.len;
         ctx.text_stack.appendSliceAssumeCapacity(str);
         return ctx.text_stack.constSlice()[start..];
@@ -389,12 +340,12 @@ pub const Context = struct {
         @memcpy(ctx.input_text[0..text.len], text);
     }
 
-    pub fn mu_set_clip(ctx: *Self, rect: Rect) void {
+    pub fn setClip(ctx: *Self, rect: Rect) void {
         ctx.command_list.append(.{ .clip = .{ .rect = rect } }) catch unreachable;
     }
 
-    pub fn mu_draw_rect(ctx: *Self, rect: Rect, color: Color) void {
-        const r = rect.intersect(ctx.mu_get_clip_rect());
+    pub fn drawRect(ctx: *Self, rect: Rect, color: Color) void {
+        const r = rect.intersect(ctx.getClipRect());
         if (r.w > 0 and r.h > 0) {
             ctx.command_list.append(.{ .rect = .{
                 .rect = r,
@@ -403,22 +354,22 @@ pub const Context = struct {
         }
     }
 
-    pub fn mu_draw_box(ctx: *Self, rect: Rect, color: Color) void {
-        ctx.mu_draw_rect(.{ .x = rect.x + 1, .y = rect.y, .w = rect.w - 2, .h = 1 }, color);
-        ctx.mu_draw_rect(.{ .x = rect.x + 1, .y = rect.y + rect.h - 1, .w = rect.w - 2, .h = 1 }, color);
-        ctx.mu_draw_rect(.{ .x = rect.x, .y = rect.y, .w = 1, .h = rect.h }, color);
-        ctx.mu_draw_rect(.{ .x = rect.x + rect.w - 1, .y = rect.y, .w = 1, .h = rect.h }, color);
+    pub fn drawBox(ctx: *Self, rect: Rect, color: Color) void {
+        ctx.drawRect(.{ .x = rect.x + 1, .y = rect.y, .w = rect.w - 2, .h = 1 }, color);
+        ctx.drawRect(.{ .x = rect.x + 1, .y = rect.y + rect.h - 1, .w = rect.w - 2, .h = 1 }, color);
+        ctx.drawRect(.{ .x = rect.x, .y = rect.y, .w = 1, .h = rect.h }, color);
+        ctx.drawRect(.{ .x = rect.x + rect.w - 1, .y = rect.y, .w = 1, .h = rect.h }, color);
     }
 
-    pub fn mu_draw_text(ctx: *Self, str: []const u8, pos: Vec2, color: Color) void {
+    pub fn drawText(ctx: *Self, str: []const u8, pos: Vec2, color: Color) void {
         const rect = Rect{ .x = pos[0], .y = pos[1], .w = ctx.textWidth(str), .h = ctx.textHeight() };
 
-        const clipped = mu_check_clip(ctx, rect);
+        const clipped = checkClip(ctx, rect);
         if (clipped == .all) return;
-        if (clipped == .part) mu_set_clip(ctx, mu_get_clip_rect(ctx));
+        if (clipped == .part) setClip(ctx, getClipRect(ctx));
 
         // add command
-        const str_start = ctx.mu_push_text(str);
+        const str_start = ctx.pushText(str);
         ctx.command_list.append(.{ .text = .{
             .str = str_start,
             .pos = pos,
@@ -426,14 +377,14 @@ pub const Context = struct {
         } }) catch unreachable;
 
         // reset clipping if it was set
-        if (clipped != .none) mu_set_clip(ctx, Rect.unclipped);
+        if (clipped != .none) setClip(ctx, unclipped);
     }
 
-    pub fn mu_draw_icon(ctx: *Self, id: Icon, rect: Rect, color: Color) void {
+    pub fn drawIcon(ctx: *Self, id: Icon, rect: Rect, color: Color) void {
         // do clip command if the rect isn't fully contained within the cliprect
-        const clipped = ctx.mu_check_clip(rect);
+        const clipped = ctx.checkClip(rect);
         if (clipped == .all) return;
-        if (clipped == .part) ctx.mu_set_clip(ctx.mu_get_clip_rect());
+        if (clipped == .part) ctx.setClip(ctx.getClipRect());
 
         // do icon command
         ctx.command_list.append(.{ .icon = .{
@@ -443,7 +394,7 @@ pub const Context = struct {
         } }) catch unreachable;
 
         // reset clipping if it was set
-        if (clipped != .none) ctx.mu_set_clip(Rect.unclipped);
+        if (clipped != .none) ctx.setClip(unclipped);
     }
 
     pub fn mu_layout_row(ctx: *Self, items: i32, widths: ?[]const i32, height: i32) void {
@@ -538,15 +489,15 @@ pub const Context = struct {
         return res;
     }
 
-    pub fn mu_draw_control_frame(ctx: *Self, id: Id, rect: Rect, colorid: StyleColor, opt: Opt) void {
+    pub fn drawControlFrame(ctx: *Self, id: Id, rect: Rect, colorid: StyleColor, opt: Opt) void {
         if (opt.noframe) return;
         const color = @intFromEnum(colorid) + @as(u4, if (ctx.focus == id) 2 else if (ctx.hover == id) 1 else 0);
         ctx.drawFrame(rect, @enumFromInt(color));
     }
 
-    pub fn mu_draw_control_text(ctx: *Self, str: []const u8, rect: Rect, colorid: StyleColor, opt: Opt) void {
+    pub fn drawControlText(ctx: *Self, str: []const u8, rect: Rect, colorid: StyleColor, opt: Opt) void {
         const tw = ctx.textWidth(str);
-        ctx.mu_push_clip_rect(rect);
+        ctx.pushClipRect(rect);
         const y = rect.y + @divFloor(rect.h - ctx.textHeight(), 2);
         const x = if (opt.aligncenter)
             rect.x + @divFloor(rect.w - tw, 2)
@@ -555,15 +506,15 @@ pub const Context = struct {
         else
             rect.x + ctx.style.padding;
 
-        ctx.mu_draw_text(str, .{ x, y }, ctx.style.colors.get(colorid));
-        ctx.mu_pop_clip_rect();
+        ctx.drawText(str, .{ x, y }, ctx.style.colors.get(colorid));
+        ctx.popClipRect();
     }
 
     pub fn mu_mouse_over(ctx: *Self, rect: Rect) bool {
-        return rect.overlaps(ctx.mouse_pos) and ctx.mu_get_clip_rect().overlaps(ctx.mouse_pos) and ctx.inHoverRoot();
+        return rect.overlaps(ctx.mouse_pos) and ctx.getClipRect().overlaps(ctx.mouse_pos) and ctx.inHoverRoot();
     }
 
-    pub fn mu_update_control(ctx: *Self, id: Id, rect: Rect, opt: Opt) void {
+    pub fn updateControl(ctx: *Self, id: Id, rect: Rect, opt: Opt) void {
         const mouseover = ctx.mu_mouse_over(rect);
 
         if (ctx.focus == id) ctx.updated_focus = true;
@@ -571,15 +522,15 @@ pub const Context = struct {
         if (mouseover and ctx.mouse_down == .none) ctx.hover = id;
 
         if (ctx.focus == id) {
-            if (ctx.mouse_pressed != .none and !mouseover) ctx.setFocus(0);
-            if (ctx.mouse_down == .none and !opt.holdfocus) ctx.setFocus(0);
+            if (ctx.mouse_pressed != .none and !mouseover) ctx.setFocus(.invalid);
+            if (ctx.mouse_down == .none and !opt.holdfocus) ctx.setFocus(.invalid);
         }
 
         if (ctx.hover == id) {
             if (ctx.mouse_pressed != .none) {
                 ctx.setFocus(id);
             } else if (!mouseover) {
-                ctx.hover = 0;
+                ctx.hover = .invalid;
             }
         }
     }
@@ -606,7 +557,7 @@ pub const Context = struct {
                 end_idx = p;
                 p += 1;
             }
-            ctx.mu_draw_text(text[start_idx..end_idx], .{ r.x, r.y }, color);
+            ctx.drawText(text[start_idx..end_idx], .{ r.x, r.y }, color);
             p = end_idx + 1;
         }
 
@@ -614,7 +565,7 @@ pub const Context = struct {
     }
 
     pub fn mu_label(ctx: *Self, text: []const u8) void {
-        ctx.mu_draw_control_text(text, ctx.mu_layout_next(), .text, .{});
+        ctx.drawControlText(text, ctx.mu_layout_next(), .text, .{});
     }
 
     pub fn mu_button(ctx: *Self, label: []const u8) bool {
@@ -626,14 +577,14 @@ pub const Context = struct {
         _ = icon; // autofix
         const id = ctx.getId(label);
         const r = ctx.mu_layout_next();
-        ctx.mu_update_control(id, r, opt);
+        ctx.updateControl(id, r, opt);
 
         // handle click
         const clicked = ctx.mouse_pressed == .left and ctx.focus == id;
 
         // draw
-        ctx.mu_draw_control_frame(id, r, .button, opt);
-        ctx.mu_draw_control_text(label, r, .text, opt);
+        ctx.drawControlFrame(id, r, .button, opt);
+        ctx.drawControlText(label, r, .text, opt);
 
         return clicked;
     }
@@ -643,7 +594,7 @@ pub const Context = struct {
         const id = ctx.getId(std.mem.asBytes(&state));
         const r = ctx.mu_layout_next();
         const box = Rect{ .x = r.x, .y = r.y, .w = r.h, .h = r.h };
-        ctx.mu_update_control(id, r, .{});
+        ctx.updateControl(id, r, .{});
 
         // handle click
         if (ctx.mouse_pressed == .left and ctx.focus == id) {
@@ -652,10 +603,10 @@ pub const Context = struct {
         }
 
         // draw
-        ctx.mu_draw_control_frame(id, box, .base, .{});
-        if (state.*) ctx.mu_draw_icon(.check, box, ctx.style.colors.get(.text));
+        ctx.drawControlFrame(id, box, .base, .{});
+        if (state.*) ctx.drawIcon(.check, box, ctx.style.colors.get(.text));
         const rr = Rect{ .x = r.x + box.w, .y = r.y, .w = r.w - box.w, .h = r.h };
-        ctx.mu_draw_control_text(label, rr, .text, .{});
+        ctx.drawControlText(label, rr, .text, .{});
 
         return result;
     }
@@ -691,7 +642,7 @@ pub const Context = struct {
         // TODO
 
         // handle normal mode
-        ctx.mu_update_control(id, base, opt);
+        ctx.updateControl(id, base, opt);
 
         // handle input
         if (ctx.focus == id and (ctx.mouse_down == .left or ctx.mouse_pressed == .left)) {
@@ -708,18 +659,18 @@ pub const Context = struct {
         if (last != v) result.change = true;
 
         // draw base
-        ctx.mu_draw_control_frame(id, base, .base, opt);
+        ctx.drawControlFrame(id, base, .base, opt);
 
         // draw thumb
         const w = ctx.style.thumb_size;
         const x = @divFloor((v - low) * (base.w - w), (high - low));
         const thumb = Rect{ .x = base.x + x, .y = base.y, .w = w, .h = base.h };
-        ctx.mu_draw_control_frame(id, thumb, .button, opt);
+        ctx.drawControlFrame(id, thumb, .button, opt);
 
         // draw text
         var buf: [16]u8 = undefined;
         const text = std.fmt.bufPrint(&buf, fmt, .{v}) catch unreachable;
-        ctx.mu_draw_control_text(text, base, .text, opt);
+        ctx.drawControlText(text, base, .text, opt);
 
         return result;
     }
@@ -777,8 +728,8 @@ pub const Context = struct {
             // title text
             if (true) {
                 const iid = ctx.getId("!title");
-                ctx.mu_update_control(iid, tr, opt);
-                ctx.mu_draw_control_text(title, tr, .title_text, opt);
+                ctx.updateControl(iid, tr, opt);
+                ctx.drawControlText(title, tr, .title_text, opt);
                 if (iid == ctx.focus and ctx.mouse_down == .left) {
                     cnt.rect.x += ctx.mouse_delta[0];
                     cnt.rect.y += ctx.mouse_delta[1];
@@ -792,8 +743,8 @@ pub const Context = struct {
                 const iid = ctx.getId("!close");
                 const r = Rect{ .x = tr.x + tr.w - tr.h, .y = tr.y, .w = tr.h, .h = tr.h };
                 tr.w -= r.w;
-                ctx.mu_draw_icon(.close, r, ctx.style.colors.get(.title_text));
-                ctx.mu_update_control(iid, r, opt);
+                ctx.drawIcon(.close, r, ctx.style.colors.get(.title_text));
+                ctx.updateControl(iid, r, opt);
                 if (ctx.mouse_pressed == .left and iid == ctx.focus) {
                     cnt.open = false;
                 }
@@ -807,7 +758,7 @@ pub const Context = struct {
             const sz = ctx.style.title_height;
             const iid = ctx.getId("!resize");
             const r = Rect{ .x = rect.x + rect.w - sz, .y = rect.y + rect.h - sz, .w = sz, .h = sz };
-            ctx.mu_update_control(iid, r, opt);
+            ctx.updateControl(iid, r, opt);
             if (id == ctx.focus and ctx.mouse_down == .left) {
                 cnt.rect.w = @max(96, cnt.rect.w + ctx.mouse_delta[0]);
                 cnt.rect.h = @max(64, cnt.rect.h + ctx.mouse_delta[1]);
@@ -825,26 +776,26 @@ pub const Context = struct {
             cnt.open = false;
         }
 
-        ctx.mu_push_clip_rect(cnt.body);
+        ctx.pushClipRect(cnt.body);
 
         return true;
     }
 
-    pub fn mu_end_window(ctx: *Self) void {
-        ctx.mu_pop_clip_rect();
+    pub fn endWindow(ctx: *Self) void {
+        ctx.popClipRect();
         ctx.endRootContainer();
     }
 
-    pub fn mu_open_popup(ctx: *Self, name: []const u8) void {
-        const cnt = ctx.mu_get_container(name);
+    pub fn openPopup(ctx: *Self, name: []const u8) void {
+        const cnt = ctx.getContainer(name);
         ctx.hover_root = cnt;
         ctx.next_hover_root = cnt;
         cnt.rect = .{ .x = ctx.mouse_pos[0], .y = ctx.mouse_pos[1], .w = 1, .h = 1 };
         cnt.open = true;
-        ctx.mu_bring_to_front(cnt);
+        ctx.bringToFront(cnt);
     }
 
-    pub fn mu_begin_popup(ctx: *Self, name: []const u8) bool {
+    pub fn beginPopup(ctx: *Self, name: []const u8) bool {
         return ctx.beginWindowEx(name, .{}, .{
             .popup = true,
             .autosize = true,
@@ -855,11 +806,11 @@ pub const Context = struct {
         });
     }
 
-    pub fn mu_end_popup(ctx: *Self) void {
-        ctx.mu_end_window();
+    pub fn endPopup(ctx: *Self) void {
+        ctx.endWindow();
     }
 
-    pub fn mu_begin_panel_ex(ctx: *Self, name: []const u8, opt: Opt) void {
+    pub fn beginPanelEx(ctx: *Self, name: []const u8, opt: Opt) void {
         ctx.pushId(name);
         const cnt = ctx.getContainerInit(ctx.last_id, opt) orelse unreachable;
         cnt.rect = ctx.mu_layout_next();
@@ -870,37 +821,35 @@ pub const Context = struct {
 
         ctx.container_stack.push(cnt);
         ctx.pushContainerBody(cnt, cnt.rect, opt);
-        ctx.mu_push_clip_rect(cnt.body);
+        ctx.pushClipRect(cnt.body);
     }
 
-    pub fn mu_end_panel(ctx: *Self) void {
-        ctx.mu_pop_clip_rect();
+    pub fn endPanel(ctx: *Self) void {
+        ctx.popClipRect();
         ctx.popContainer();
     }
 
     // internals
 
     fn getContainerInit(ctx: *Self, id: Id, opt: Opt) ?*Container {
-        const maybe_idx = ctx.container_pool.get(id);
-        if (maybe_idx) |idx| {
-            if (ctx.containers[idx].open or !opt.closed) {
-                ctx.container_pool.update(idx, ctx.frame);
+        if (ctx.container_pool.get(id)) |val| {
+            if (val.data.open or !opt.closed) {
+                val.generation = ctx.frame;
             }
-            return &ctx.containers[idx];
+            return &val.data;
         }
 
         if (opt.closed) return null;
 
         // container not found in pool, init new container
-        const idx = ctx.container_pool.init(ctx.frame, id);
-        const cnt = &ctx.containers[idx];
+        const cnt = ctx.container_pool.init(ctx.frame, id);
         cnt.* = .{
             .head_idx = 0xFFFF_FFFF,
             .tail_idx = 0xFFFF_FFFF,
             .open = true,
         };
 
-        ctx.mu_bring_to_front(cnt);
+        ctx.bringToFront(cnt);
         return cnt;
     }
 
@@ -913,7 +862,7 @@ pub const Context = struct {
             ctx.next_hover_root = cnt;
         }
 
-        ctx.clip_stack.append(Rect.unclipped) catch unreachable;
+        ctx.clip_stack.append(unclipped) catch unreachable;
     }
 
     fn pushContainerBody(ctx: *Self, cnt: *Container, body: Rect, opt: Opt) void {
@@ -937,7 +886,7 @@ pub const Context = struct {
         var cs = cnt.content_size;
         cs[0] += ctx.style.padding * 2;
         cs[1] += ctx.style.padding * 2;
-        ctx.mu_push_clip_rect(body.*);
+        ctx.pushClipRect(body.*);
 
         // resize body to make space for scrollbars
         if (cs[1] > cnt.body.h) body.w -= sz;
@@ -945,7 +894,7 @@ pub const Context = struct {
 
         ctx.scrollbarVertical(cnt, body, cs);
         ctx.scrollbarHorizontal(cnt, body, cs);
-        ctx.mu_pop_clip_rect();
+        ctx.popClipRect();
     }
 
     // to create a horizontal or vertical scrollbar almost-identical code is used;
@@ -963,7 +912,7 @@ pub const Context = struct {
             base.w = ctx.style.scrollbar_size;
 
             // handle input
-            ctx.mu_update_control(id, base, .{});
+            ctx.updateControl(id, base, .{});
             if (ctx.focus == id and ctx.mouse_down == .left) {
                 cnt.scroll[1] += @divTrunc(ctx.mouse_delta[1] * cs[1], base.h);
             }
@@ -998,7 +947,7 @@ pub const Context = struct {
             base.h = ctx.style.scrollbar_size;
 
             // handle input
-            ctx.mu_update_control(id, base, .{});
+            ctx.updateControl(id, base, .{});
             if (ctx.focus == id and ctx.mouse_down == .left) {
                 cnt.scroll[0] += @divTrunc(ctx.mouse_delta[0] * cs[0], base.w);
             }
@@ -1025,14 +974,14 @@ pub const Context = struct {
     }
 
     fn endRootContainer(ctx: *Self) void {
-        const cnt = ctx.mu_get_current_container();
+        const cnt = ctx.getCurrentContainer();
         cnt.tail_idx = @truncate(ctx.command_list.items.len);
-        ctx.mu_pop_clip_rect();
+        ctx.popClipRect();
         ctx.popContainer();
     }
 
     fn popContainer(ctx: *Self) void {
-        const cnt = ctx.mu_get_current_container();
+        const cnt = ctx.getCurrentContainer();
         const layout = ctx.getLayout();
         cnt.content_size[0] = layout.max[0] - layout.body.x;
         cnt.content_size[1] = layout.max[1] - layout.body.y;
@@ -1043,24 +992,24 @@ pub const Context = struct {
 
     fn headerImpl(ctx: *Self, label: []const u8, isTreeNode: bool, opt: Opt) bool {
         const id = ctx.getId(label);
-        const idx = ctx.treenode_pool.get(id);
+        const node = ctx.treenode_pool.get(id);
 
         ctx.mu_layout_row(1, &.{-1}, 0);
 
-        var active = idx != null;
+        var active = node != null;
         const expanded = if (opt.expanded) !active else active;
         var r = ctx.mu_layout_next();
-        ctx.mu_update_control(id, r, .{});
+        ctx.updateControl(id, r, .{});
 
         // handle click
         active = active != (ctx.mouse_pressed == .left and ctx.focus == id);
 
         // update pool ref
-        if (idx) |i| {
+        if (node) |i| {
             if (active) {
-                ctx.treenode_pool.update(i, ctx.frame);
+                i.generation = ctx.frame;
             } else {
-                ctx.treenode_pool.buffer[i] = .{};
+                i.* = .{ .data = undefined };
             }
         } else if (active) {
             _ = ctx.treenode_pool.init(ctx.frame, id);
@@ -1070,24 +1019,24 @@ pub const Context = struct {
         if (isTreeNode) {
             if (ctx.hover == id) ctx.drawFrame(r, .button_hover);
         } else {
-            ctx.mu_draw_control_frame(id, r, .button, .{});
+            ctx.drawControlFrame(id, r, .button, .{});
         }
 
-        ctx.mu_draw_icon(if (expanded) .expanded else .collapsed, .{ .x = r.x, .y = r.y, .w = r.h, .h = r.h }, ctx.style.colors.get(.text));
+        ctx.drawIcon(if (expanded) .expanded else .collapsed, .{ .x = r.x, .y = r.y, .w = r.h, .h = r.h }, ctx.style.colors.get(.text));
         r.x += r.h - ctx.style.padding;
         r.w -= r.h - ctx.style.padding;
-        ctx.mu_draw_control_text(label, r, .text, .{});
+        ctx.drawControlText(label, r, .text, .{});
 
         return expanded;
     }
 
     fn drawFrame(ctx: *Self, rect: Rect, color: StyleColor) void {
-        ctx.mu_draw_rect(rect, ctx.style.colors.get(color));
+        ctx.drawRect(rect, ctx.style.colors.get(color));
         if (color == .scroll_base or color == .scroll_thumb or color == .title_bg) return;
 
         // draw border
         if (ctx.style.colors.get(.border).a != 0) {
-            ctx.mu_draw_box(rect.expand(1), ctx.style.colors.get(.border));
+            ctx.drawBox(rect.expand(1), ctx.style.colors.get(.border));
         }
     }
 
@@ -1104,25 +1053,34 @@ pub const Context = struct {
     }
 };
 
+const PoolItem = struct {
+    id: Id = .invalid,
+    last_update: ?u32 = null,
+};
+
 fn Pool(comptime size: comptime_int) type {
     return struct {
         const Self = @This();
 
         buffer: [size]PoolItem = undefined,
 
-        fn init(self: *Self, frame: i32, id: Id) usize {
-            var n: u32 = 0xFFFF_FFFF;
+        fn init(self: *Self, frame: u32, id: Id) usize {
+            var n: ?u32 = null;
             var f = frame;
             for (0..size) |i| {
-                if (self.buffer[i].last_update < f) {
-                    f = self.buffer[i].last_update;
+                if (self.buffer[i].last_update) |last| {
+                    if (last < f) {
+                        f = last;
+                        n = @truncate(i);
+                    }
+                } else {
                     n = @truncate(i);
                 }
             }
 
-            assert(n != 0xFFFF_FFFF);
-            self.buffer[n] = .{ .id = id, .last_update = frame };
-            return n;
+            const idx = n orelse unreachable;
+            self.buffer[idx] = .{ .id = id, .last_update = frame };
+            return idx;
         }
 
         fn get(self: *Self, id: Id) ?usize {
@@ -1132,8 +1090,48 @@ fn Pool(comptime size: comptime_int) type {
             return null;
         }
 
-        fn update(self: *Self, idx: usize, frame: i32) void {
+        fn update(self: *Self, idx: usize, frame: u32) void {
             self.buffer[idx].last_update = frame;
+        }
+    };
+}
+
+fn Pool2(comptime T: type, comptime size: comptime_int) type {
+    return struct {
+        const Self = @This();
+
+        pub const Item = struct {
+            data: T,
+            id: Id = .invalid,
+            generation: ?u32 = null,
+        };
+
+        buffer: [size]Item = undefined,
+
+        fn init(self: *Self, generation: u32, id: Id) *T {
+            var n: ?u32 = null;
+            var f = generation;
+            for (0..size) |i| {
+                if (self.buffer[i].generation) |last| {
+                    if (last < f) {
+                        f = last;
+                        n = @truncate(i);
+                    }
+                } else {
+                    n = @truncate(i);
+                }
+            }
+
+            const idx = n orelse unreachable;
+            self.buffer[idx] = .{ .data = undefined, .id = id, .generation = generation };
+            return &self.buffer[idx].data;
+        }
+
+        fn get(self: *Self, id: Id) ?*Item {
+            for (0..size) |i| {
+                if (self.buffer[i].id == id) return &self.buffer[i];
+            }
+            return null;
         }
     };
 }
