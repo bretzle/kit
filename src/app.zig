@@ -300,12 +300,12 @@ fn Device(comptime config: Config) type {
                     self.height = os.HIWORD(lParam);
                     _ = os.RedrawWindow(self.hwnd, null, null, os.RDW_INVALIDATE | os.RDW_UPDATENOW);
                 },
-                os.WM_MOUSEMOVE => if (config.enable_gui) self.gui.mu_input_mousemove(os.GET_X_LPARAM(lParam), os.GET_Y_LPARAM(lParam)),
-                os.WM_LBUTTONUP => if (config.enable_gui) self.gui.mu_input_mouseup(os.GET_X_LPARAM(lParam), os.GET_Y_LPARAM(lParam), .left),
-                os.WM_LBUTTONDOWN => if (config.enable_gui) self.gui.mu_input_mousedown(os.GET_X_LPARAM(lParam), os.GET_Y_LPARAM(lParam), .left),
-                os.WM_RBUTTONUP => if (config.enable_gui) self.gui.mu_input_mouseup(os.GET_X_LPARAM(lParam), os.GET_Y_LPARAM(lParam), .right),
-                os.WM_RBUTTONDOWN => if (config.enable_gui) self.gui.mu_input_mousedown(os.GET_X_LPARAM(lParam), os.GET_Y_LPARAM(lParam), .right),
-                os.WM_MOUSEWHEEL => if (config.enable_gui) self.gui.mu_input_scroll(0, -@divTrunc(os.GET_WHEEL_DELTA_WPARAM(wParam), 5)),
+                os.WM_MOUSEMOVE => if (config.enable_gui) self.gui.input.mousemove(os.GET_X_LPARAM(lParam), os.GET_Y_LPARAM(lParam)),
+                os.WM_LBUTTONUP => if (config.enable_gui) self.gui.input.mouseup(os.GET_X_LPARAM(lParam), os.GET_Y_LPARAM(lParam), .left),
+                os.WM_LBUTTONDOWN => if (config.enable_gui) self.gui.input.mousedown(os.GET_X_LPARAM(lParam), os.GET_Y_LPARAM(lParam), .left),
+                os.WM_RBUTTONUP => if (config.enable_gui) self.gui.input.mouseup(os.GET_X_LPARAM(lParam), os.GET_Y_LPARAM(lParam), .right),
+                os.WM_RBUTTONDOWN => if (config.enable_gui) self.gui.input.mousedown(os.GET_X_LPARAM(lParam), os.GET_Y_LPARAM(lParam), .right),
+                os.WM_MOUSEWHEEL => if (config.enable_gui) self.gui.input.scroll(0, -@divTrunc(os.GET_WHEEL_DELTA_WPARAM(wParam), 5)),
                 else => {},
             }
 

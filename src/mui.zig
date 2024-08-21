@@ -11,23 +11,6 @@ const unclipped = Rect{ .w = 0x1000000, .h = 0x1000000 };
 
 pub const Clip = enum { none, part, all };
 
-pub const StyleColor = enum {
-    text,
-    border,
-    window_bg,
-    title_bg,
-    title_text,
-    panel_bg,
-    button,
-    button_hover,
-    button_focus,
-    base,
-    base_hover,
-    base_focus,
-    scroll_base,
-    scroll_thumb,
-};
-
 pub const Icon = enum { close, check, collapsed, expanded };
 
 pub const Result = packed struct {
@@ -52,18 +35,12 @@ pub const Opt = packed struct {
     expanded: bool = false,
 };
 
-pub const Mouse = enum { none, left, right, middle };
+pub const Id = enum(u32) {
+    const initial: Id = @enumFromInt(2166136261);
 
-pub const Key = packed struct {
-    shift: bool = false,
-    ctrl: bool = false,
-    alt: bool = false,
-    backspace: bool = false,
-    ret: bool = false,
+    invalid,
+    _,
 };
-
-pub const Id = enum(u32) { invalid, _ };
-const HASH_INITIAL: Id = @enumFromInt(2166136261);
 
 pub const Command = union(enum) {
     clip: struct { rect: Rect },
@@ -95,7 +72,7 @@ pub const Container = struct {
     body: Rect = .{},
     content_size: Vec2 = .{ 0, 0 },
     scroll: Vec2 = .{ 0, 0 },
-    zindex: i32 = 0,
+    zindex: u32 = 0,
     open: bool,
 
     pub fn compare(_: void, lhs: *Container, rhs: *Container) bool {
@@ -104,6 +81,11 @@ pub const Container = struct {
 };
 
 pub const Style = struct {
+    pub const Control = enum { text, border, window_bg, title_bg, title_text, panel_bg, button, button_hover, button_focus, base, base_hover, base_focus, scroll_base, scroll_thumb };
+    pub const ColorMap = std.EnumArray(Control, Color);
+
+    var default = Style{};
+
     size: Vec2 = .{ 68, 10 },
     padding: i32 = 5,
     spacing: i32 = 4,
@@ -111,24 +93,77 @@ pub const Style = struct {
     title_height: i32 = 24,
     scrollbar_size: i32 = 12,
     thumb_size: i32 = 8,
-    colors: std.EnumArray(StyleColor, Color) = .{ .values = .{
-        .{ .r = 0xE6, .g = 0xE6, .b = 0xE6, .a = 0xFF },
-        .{ .r = 0x19, .g = 0x19, .b = 0x19, .a = 0xFF },
-        .{ .r = 0x32, .g = 0x32, .b = 0x32, .a = 0xFF },
-        .{ .r = 0x19, .g = 0x19, .b = 0x19, .a = 0xFF },
-        .{ .r = 0xF0, .g = 0xF0, .b = 0xF0, .a = 0xFF },
-        .{ .r = 0x00, .g = 0x00, .b = 0x00, .a = 0x00 },
-        .{ .r = 0x4B, .g = 0x4B, .b = 0x4B, .a = 0xFF },
-        .{ .r = 0x5F, .g = 0x5F, .b = 0x5F, .a = 0xFF },
-        .{ .r = 0x73, .g = 0x73, .b = 0x73, .a = 0xFF },
-        .{ .r = 0x1E, .g = 0x1E, .b = 0x1E, .a = 0xFF },
-        .{ .r = 0x23, .g = 0x23, .b = 0x23, .a = 0xFF },
-        .{ .r = 0x28, .g = 0x28, .b = 0x28, .a = 0xFF },
-        .{ .r = 0x2B, .g = 0x2B, .b = 0x2B, .a = 0xFF },
-        .{ .r = 0x1E, .g = 0x1E, .b = 0x1E, .a = 0xFF },
-    } },
+    colors: ColorMap = ColorMap.init(.{
+        .text = .{ .r = 0xE6, .g = 0xE6, .b = 0xE6, .a = 0xFF },
+        .border = .{ .r = 0x19, .g = 0x19, .b = 0x19, .a = 0xFF },
+        .window_bg = .{ .r = 0x32, .g = 0x32, .b = 0x32, .a = 0xFF },
+        .title_bg = .{ .r = 0x19, .g = 0x19, .b = 0x19, .a = 0xFF },
+        .title_text = .{ .r = 0xF0, .g = 0xF0, .b = 0xF0, .a = 0xFF },
+        .panel_bg = .{ .r = 0x00, .g = 0x00, .b = 0x00, .a = 0x00 },
+        .button = .{ .r = 0x4B, .g = 0x4B, .b = 0x4B, .a = 0xFF },
+        .button_hover = .{ .r = 0x5F, .g = 0x5F, .b = 0x5F, .a = 0xFF },
+        .button_focus = .{ .r = 0x73, .g = 0x73, .b = 0x73, .a = 0xFF },
+        .base = .{ .r = 0x1E, .g = 0x1E, .b = 0x1E, .a = 0xFF },
+        .base_hover = .{ .r = 0x23, .g = 0x23, .b = 0x23, .a = 0xFF },
+        .base_focus = .{ .r = 0x28, .g = 0x28, .b = 0x28, .a = 0xFF },
+        .scroll_base = .{ .r = 0x2B, .g = 0x2B, .b = 0x2B, .a = 0xFF },
+        .scroll_thumb = .{ .r = 0x1E, .g = 0x1E, .b = 0x1E, .a = 0xFF },
+    }),
+};
 
-    var default = Style{};
+pub const Input = struct {
+    pub const Mouse = enum { none, left, right, middle };
+
+    pub const Key = packed struct {
+        shift: bool = false,
+        ctrl: bool = false,
+        alt: bool = false,
+        backspace: bool = false,
+        ret: bool = false,
+    };
+
+    mouse_pos: Vec2 = .{ 0, 0 },
+    last_mouse_pos: Vec2 = .{ 0, 0 },
+    mouse_delta: Vec2 = .{ 0, 0 },
+    scroll_delta: Vec2 = .{ 0, 0 },
+    mouse_down: Mouse = .none,
+    mouse_pressed: Mouse = .none,
+    key_down: i32 = 0,
+    key_pressed: i32 = 0,
+    text: [32]u8 = [_]u8{0} ** 32,
+
+    pub fn mousemove(input: *Input, x: i32, y: i32) void {
+        input.mouse_pos = .{ x, y };
+    }
+
+    pub fn mousedown(input: *Input, x: i32, y: i32, btn: Mouse) void {
+        input.mousemove(x, y);
+        input.mouse_down = btn;
+        input.mouse_pressed = btn;
+    }
+
+    pub fn mouseup(input: *Input, x: i32, y: i32, _: Mouse) void {
+        input.mousemove(x, y);
+        input.mouse_down = .none;
+    }
+
+    pub fn scroll(input: *Input, x: i32, y: i32) void {
+        input.scroll_delta[0] += x;
+        input.scroll_delta[1] += y;
+    }
+
+    pub fn keydown(input: *Input, key: i32) void {
+        input.key_down |= key;
+        input.key_pressed |= key;
+    }
+
+    pub fn keyup(input: *Input, key: i32) void {
+        input.key_down &= ~key;
+    }
+
+    pub fn text(input: *Input, txt: []const u8) void {
+        @memcpy(input.text[0..txt.len], txt);
+    }
 };
 
 pub const Context = struct {
@@ -144,7 +179,7 @@ pub const Context = struct {
     focus: Id = .invalid,
     last_id: Id = .invalid,
     last_rect: Rect = .{},
-    last_zindex: i32 = 0,
+    last_zindex: u32 = 0,
     updated_focus: bool = false,
     frame: u32 = 0,
     hover_root: ?*Container = null,
@@ -152,7 +187,6 @@ pub const Context = struct {
     scroll_target: ?*Container = null,
     number_edit_buf: [127]u8 = [_]u8{0} ** 127,
     number_edit: Id = .invalid,
-    cmd_idx: usize = 0,
 
     // stacks
     command_list: std.ArrayList(Command),
@@ -164,19 +198,11 @@ pub const Context = struct {
     text_stack: std.BoundedArray(u8, 16384) = .{},
 
     // retained pools
-    container_pool: Pool2(Container, 16) = undefined,
-    treenode_pool: Pool2(void, 16) = undefined,
+    container_pool: Pool(Container, 16) = undefined,
+    treenode_pool: Pool(void, 16) = undefined,
 
     // input state
-    mouse_pos: Vec2 = .{ 0, 0 },
-    last_mouse_pos: Vec2 = .{ 0, 0 },
-    mouse_delta: Vec2 = .{ 0, 0 },
-    scroll_delta: Vec2 = .{ 0, 0 },
-    mouse_down: Mouse = .none,
-    mouse_pressed: Mouse = .none,
-    key_down: i32 = 0,
-    key_pressed: i32 = 0,
-    input_text: [32]u8 = [_]u8{0} ** 32,
+    input: Input = .{},
 
     pub fn create(allocator: std.mem.Allocator, textHeight: *const fn () i32, textWidth: *const fn ([]const u8) i32) Self {
         return .{
@@ -207,7 +233,7 @@ pub const Context = struct {
         ctx.scroll_target = null;
         ctx.hover_root = ctx.next_hover_root;
         ctx.next_hover_root = null;
-        ctx.mouse_delta = ctx.mouse_pos - ctx.last_mouse_pos;
+        ctx.input.mouse_delta = ctx.input.mouse_pos - ctx.input.last_mouse_pos;
         ctx.frame += 1;
     }
 
@@ -220,7 +246,7 @@ pub const Context = struct {
 
         // handle scroll input
         if (ctx.scroll_target) |target| {
-            target.scroll += ctx.scroll_delta;
+            target.scroll += ctx.input.scroll_delta;
         }
 
         // unset focus if focus id was not touched this frame
@@ -229,17 +255,17 @@ pub const Context = struct {
 
         // bring hover root to front if mouse was pressed
         if (ctx.next_hover_root) |root| {
-            if (ctx.mouse_pressed != .none and root.zindex < ctx.last_zindex and root.zindex >= 0) {
+            if (ctx.input.mouse_pressed != .none and root.zindex < ctx.last_zindex and root.zindex >= 0) {
                 ctx.bringToFront(root);
             }
         }
 
         // reset input state
-        ctx.key_pressed = 0;
-        ctx.input_text[0] = 0;
-        ctx.mouse_pressed = .none;
-        ctx.scroll_delta = .{ 0, 0 };
-        ctx.last_mouse_pos = ctx.mouse_pos;
+        ctx.input.key_pressed = 0;
+        ctx.input.text[0] = 0;
+        ctx.input.mouse_pressed = .none;
+        ctx.input.scroll_delta = .{ 0, 0 };
+        ctx.input.last_mouse_pos = ctx.input.mouse_pos;
 
         // sort root containers by zindex
         std.mem.sort(*Container, ctx.root_list.items, {}, Container.compare);
@@ -251,7 +277,7 @@ pub const Context = struct {
     }
 
     pub fn getId(ctx: *Self, data: []const u8) Id {
-        const res = ctx.id_stack.getLastOrNull() orelse HASH_INITIAL;
+        const res = ctx.id_stack.getLastOrNull() orelse Id.initial;
         var hasher = std.hash.Fnv1a_32{ .value = @intFromEnum(res) };
         hasher.update(data);
         ctx.last_id = @enumFromInt(hasher.final());
@@ -304,40 +330,6 @@ pub const Context = struct {
         const start = ctx.text_stack.len;
         ctx.text_stack.appendSliceAssumeCapacity(str);
         return ctx.text_stack.constSlice()[start..];
-    }
-
-    pub fn mu_input_mousemove(ctx: *Self, x: i32, y: i32) void {
-        ctx.mouse_pos = .{ x, y };
-    }
-
-    pub fn mu_input_mousedown(ctx: *Self, x: i32, y: i32, btn: Mouse) void {
-        ctx.mu_input_mousemove(x, y);
-        ctx.mouse_down = btn;
-        ctx.mouse_pressed = btn;
-    }
-
-    pub fn mu_input_mouseup(ctx: *Self, x: i32, y: i32, btn: Mouse) void {
-        _ = btn; // autofix
-        ctx.mu_input_mousemove(x, y);
-        ctx.mouse_down = .none;
-    }
-
-    pub fn mu_input_scroll(ctx: *Self, x: i32, y: i32) void {
-        ctx.scroll_delta[0] += x;
-        ctx.scroll_delta[1] += y;
-    }
-
-    pub fn mu_input_keydown(ctx: *Self, key: i32) void {
-        ctx.key_down |= key;
-        ctx.key_pressed |= key;
-    }
-
-    pub fn mu_input_keyup(ctx: *Self, key: i32) void {
-        ctx.key_down &= ~key;
-    }
-
-    pub fn mu_input_text(ctx: *Self, text: []const u8) void {
-        @memcpy(ctx.input_text[0..text.len], text);
     }
 
     pub fn setClip(ctx: *Self, rect: Rect) void {
@@ -489,13 +481,13 @@ pub const Context = struct {
         return res;
     }
 
-    pub fn drawControlFrame(ctx: *Self, id: Id, rect: Rect, colorid: StyleColor, opt: Opt) void {
+    pub fn drawControlFrame(ctx: *Self, id: Id, rect: Rect, control: Style.Control, opt: Opt) void {
         if (opt.noframe) return;
-        const color = @intFromEnum(colorid) + @as(u4, if (ctx.focus == id) 2 else if (ctx.hover == id) 1 else 0);
+        const color = @intFromEnum(control) + @as(u4, if (ctx.focus == id) 2 else if (ctx.hover == id) 1 else 0);
         ctx.drawFrame(rect, @enumFromInt(color));
     }
 
-    pub fn drawControlText(ctx: *Self, str: []const u8, rect: Rect, colorid: StyleColor, opt: Opt) void {
+    pub fn drawControlText(ctx: *Self, str: []const u8, rect: Rect, control: Style.Control, opt: Opt) void {
         const tw = ctx.textWidth(str);
         ctx.pushClipRect(rect);
         const y = rect.y + @divFloor(rect.h - ctx.textHeight(), 2);
@@ -506,12 +498,12 @@ pub const Context = struct {
         else
             rect.x + ctx.style.padding;
 
-        ctx.drawText(str, .{ x, y }, ctx.style.colors.get(colorid));
+        ctx.drawText(str, .{ x, y }, ctx.style.colors.get(control));
         ctx.popClipRect();
     }
 
     pub fn mu_mouse_over(ctx: *Self, rect: Rect) bool {
-        return rect.overlaps(ctx.mouse_pos) and ctx.getClipRect().overlaps(ctx.mouse_pos) and ctx.inHoverRoot();
+        return rect.overlaps(ctx.input.mouse_pos) and ctx.getClipRect().overlaps(ctx.input.mouse_pos) and ctx.inHoverRoot();
     }
 
     pub fn updateControl(ctx: *Self, id: Id, rect: Rect, opt: Opt) void {
@@ -519,15 +511,15 @@ pub const Context = struct {
 
         if (ctx.focus == id) ctx.updated_focus = true;
         if (opt.nointeract) return;
-        if (mouseover and ctx.mouse_down == .none) ctx.hover = id;
+        if (mouseover and ctx.input.mouse_down == .none) ctx.hover = id;
 
         if (ctx.focus == id) {
-            if (ctx.mouse_pressed != .none and !mouseover) ctx.setFocus(.invalid);
-            if (ctx.mouse_down == .none and !opt.holdfocus) ctx.setFocus(.invalid);
+            if (ctx.input.mouse_pressed != .none and !mouseover) ctx.setFocus(.invalid);
+            if (ctx.input.mouse_down == .none and !opt.holdfocus) ctx.setFocus(.invalid);
         }
 
         if (ctx.hover == id) {
-            if (ctx.mouse_pressed != .none) {
+            if (ctx.input.mouse_pressed != .none) {
                 ctx.setFocus(id);
             } else if (!mouseover) {
                 ctx.hover = .invalid;
@@ -580,7 +572,7 @@ pub const Context = struct {
         ctx.updateControl(id, r, opt);
 
         // handle click
-        const clicked = ctx.mouse_pressed == .left and ctx.focus == id;
+        const clicked = ctx.input.mouse_pressed == .left and ctx.focus == id;
 
         // draw
         ctx.drawControlFrame(id, r, .button, opt);
@@ -597,7 +589,7 @@ pub const Context = struct {
         ctx.updateControl(id, r, .{});
 
         // handle click
-        if (ctx.mouse_pressed == .left and ctx.focus == id) {
+        if (ctx.input.mouse_pressed == .left and ctx.focus == id) {
             result.change = true;
             state.* = !state.*;
         }
@@ -645,8 +637,8 @@ pub const Context = struct {
         ctx.updateControl(id, base, opt);
 
         // handle input
-        if (ctx.focus == id and (ctx.mouse_down == .left or ctx.mouse_pressed == .left)) {
-            v = @divTrunc(low + (ctx.mouse_pos[0] - base.x) * (high - low), base.w);
+        if (ctx.focus == id and (ctx.input.mouse_down == .left or ctx.input.mouse_pressed == .left)) {
+            v = @divTrunc(low + (ctx.input.mouse_pos[0] - base.x) * (high - low), base.w);
             const step_: i32 = @intCast(step);
             if (step_ != 0) {
                 v = @divTrunc(v + @divTrunc(step_, 2), step_) * step_;
@@ -730,9 +722,9 @@ pub const Context = struct {
                 const iid = ctx.getId("!title");
                 ctx.updateControl(iid, tr, opt);
                 ctx.drawControlText(title, tr, .title_text, opt);
-                if (iid == ctx.focus and ctx.mouse_down == .left) {
-                    cnt.rect.x += ctx.mouse_delta[0];
-                    cnt.rect.y += ctx.mouse_delta[1];
+                if (iid == ctx.focus and ctx.input.mouse_down == .left) {
+                    cnt.rect.x += ctx.input.mouse_delta[0];
+                    cnt.rect.y += ctx.input.mouse_delta[1];
                 }
                 body.y += tr.h;
                 body.h -= tr.h;
@@ -745,7 +737,7 @@ pub const Context = struct {
                 tr.w -= r.w;
                 ctx.drawIcon(.close, r, ctx.style.colors.get(.title_text));
                 ctx.updateControl(iid, r, opt);
-                if (ctx.mouse_pressed == .left and iid == ctx.focus) {
+                if (ctx.input.mouse_pressed == .left and iid == ctx.focus) {
                     cnt.open = false;
                 }
             }
@@ -759,9 +751,9 @@ pub const Context = struct {
             const iid = ctx.getId("!resize");
             const r = Rect{ .x = rect.x + rect.w - sz, .y = rect.y + rect.h - sz, .w = sz, .h = sz };
             ctx.updateControl(iid, r, opt);
-            if (id == ctx.focus and ctx.mouse_down == .left) {
-                cnt.rect.w = @max(96, cnt.rect.w + ctx.mouse_delta[0]);
-                cnt.rect.h = @max(64, cnt.rect.h + ctx.mouse_delta[1]);
+            if (id == ctx.focus and ctx.input.mouse_down == .left) {
+                cnt.rect.w = @max(96, cnt.rect.w + ctx.input.mouse_delta[0]);
+                cnt.rect.h = @max(64, cnt.rect.h + ctx.input.mouse_delta[1]);
             }
         }
 
@@ -772,7 +764,7 @@ pub const Context = struct {
             cnt.rect.h = cnt.content_size[1] + (cnt.rect.h - r.h);
         }
 
-        if (opt.popup and ctx.mouse_pressed != .none and ctx.hover_root != cnt) {
+        if (opt.popup and ctx.input.mouse_pressed != .none and ctx.hover_root != cnt) {
             cnt.open = false;
         }
 
@@ -790,7 +782,7 @@ pub const Context = struct {
         const cnt = ctx.getContainer(name);
         ctx.hover_root = cnt;
         ctx.next_hover_root = cnt;
-        cnt.rect = .{ .x = ctx.mouse_pos[0], .y = ctx.mouse_pos[1], .w = 1, .h = 1 };
+        cnt.rect = .{ .x = ctx.input.mouse_pos[0], .y = ctx.input.mouse_pos[1], .w = 1, .h = 1 };
         cnt.open = true;
         ctx.bringToFront(cnt);
     }
@@ -858,7 +850,7 @@ pub const Context = struct {
         ctx.root_list.append(cnt) catch unreachable;
 
         cnt.head_idx = @truncate(ctx.command_list.items.len);
-        if (cnt.rect.overlaps(ctx.mouse_pos) and (ctx.next_hover_root == null or cnt.zindex > ctx.next_hover_root.?.zindex)) {
+        if (cnt.rect.overlaps(ctx.input.mouse_pos) and (ctx.next_hover_root == null or cnt.zindex > ctx.next_hover_root.?.zindex)) {
             ctx.next_hover_root = cnt;
         }
 
@@ -913,8 +905,8 @@ pub const Context = struct {
 
             // handle input
             ctx.updateControl(id, base, .{});
-            if (ctx.focus == id and ctx.mouse_down == .left) {
-                cnt.scroll[1] += @divTrunc(ctx.mouse_delta[1] * cs[1], base.h);
+            if (ctx.focus == id and ctx.input.mouse_down == .left) {
+                cnt.scroll[1] += @divTrunc(ctx.input.mouse_delta[1] * cs[1], base.h);
             }
             // clamp scroll to limits
             cnt.scroll[1] = std.math.clamp(cnt.scroll[1], 0, maxscroll);
@@ -948,8 +940,8 @@ pub const Context = struct {
 
             // handle input
             ctx.updateControl(id, base, .{});
-            if (ctx.focus == id and ctx.mouse_down == .left) {
-                cnt.scroll[0] += @divTrunc(ctx.mouse_delta[0] * cs[0], base.w);
+            if (ctx.focus == id and ctx.input.mouse_down == .left) {
+                cnt.scroll[0] += @divTrunc(ctx.input.mouse_delta[0] * cs[0], base.w);
             }
             // clamp scroll to limits
             cnt.scroll[0] = std.math.clamp(cnt.scroll[0], 0, maxscroll);
@@ -1002,7 +994,7 @@ pub const Context = struct {
         ctx.updateControl(id, r, .{});
 
         // handle click
-        active = active != (ctx.mouse_pressed == .left and ctx.focus == id);
+        active = active != (ctx.input.mouse_pressed == .left and ctx.focus == id);
 
         // update pool ref
         if (node) |i| {
@@ -1030,7 +1022,7 @@ pub const Context = struct {
         return expanded;
     }
 
-    fn drawFrame(ctx: *Self, rect: Rect, color: StyleColor) void {
+    fn drawFrame(ctx: *Self, rect: Rect, color: Style.Control) void {
         ctx.drawRect(rect, ctx.style.colors.get(color));
         if (color == .scroll_base or color == .scroll_thumb or color == .title_bg) return;
 
@@ -1053,50 +1045,7 @@ pub const Context = struct {
     }
 };
 
-const PoolItem = struct {
-    id: Id = .invalid,
-    last_update: ?u32 = null,
-};
-
-fn Pool(comptime size: comptime_int) type {
-    return struct {
-        const Self = @This();
-
-        buffer: [size]PoolItem = undefined,
-
-        fn init(self: *Self, frame: u32, id: Id) usize {
-            var n: ?u32 = null;
-            var f = frame;
-            for (0..size) |i| {
-                if (self.buffer[i].last_update) |last| {
-                    if (last < f) {
-                        f = last;
-                        n = @truncate(i);
-                    }
-                } else {
-                    n = @truncate(i);
-                }
-            }
-
-            const idx = n orelse unreachable;
-            self.buffer[idx] = .{ .id = id, .last_update = frame };
-            return idx;
-        }
-
-        fn get(self: *Self, id: Id) ?usize {
-            for (0..size) |i| {
-                if (self.buffer[i].id == id) return i;
-            }
-            return null;
-        }
-
-        fn update(self: *Self, idx: usize, frame: u32) void {
-            self.buffer[idx].last_update = frame;
-        }
-    };
-}
-
-fn Pool2(comptime T: type, comptime size: comptime_int) type {
+fn Pool(comptime T: type, comptime size: comptime_int) type {
     return struct {
         const Self = @This();
 
