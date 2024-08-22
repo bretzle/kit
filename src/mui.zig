@@ -1,11 +1,15 @@
 const std = @import("std");
 const os = @import("os.zig");
 const math = @import("math.zig");
+const util = @import("util.zig");
 const assert = std.debug.assert;
 
 const Vec2 = math.Vec2;
 const Rect = math.Rect;
 const Color = math.Color;
+
+pub const Style = @import("mui/style.zig");
+pub const Input = @import("mui/input.zig");
 
 const unclipped = Rect{ .w = 0x1000000, .h = 0x1000000 };
 
@@ -38,7 +42,7 @@ pub const Opt = packed struct {
 pub const Id = enum(u32) {
     const initial: Id = @enumFromInt(2166136261);
 
-    invalid,
+    invalid = 0,
     _,
 };
 
@@ -49,7 +53,31 @@ pub const Command = union(enum) {
     icon: struct { rect: Rect, id: Icon, color: Color },
 };
 
+pub const CommandIter = struct {
+    containers: []const *Container,
+    commands: []const Command,
+    offset: usize = 0,
+
+    pub fn next(self: *CommandIter) ?Command {
+        while (true) {
+            if (self.containers.len == 0) return null;
+
+            const cnt = self.containers[0];
+            if (cnt.start + self.offset == cnt.end) {
+                self.containers = self.containers[1..];
+                self.offset = 0;
+                continue;
+            }
+
+            self.offset += 1;
+            return self.commands[cnt.start + self.offset - 1];
+        }
+    }
+};
+
 pub const Layout = struct {
+    pub const Type = enum { none, relative, absolute };
+
     body: Rect = .{},
     next: Rect = .{},
     position: Vec2 = .{ 0, 0 },
@@ -59,122 +87,36 @@ pub const Layout = struct {
     items: i32 = 0,
     item_index: i32 = 0,
     next_row: i32 = 0,
-    next_type: LayoutType = .none,
+    next_type: Type = .none,
     indent: i32 = 0,
 };
 
-pub const LayoutType = enum { none, relative, absolute };
-
 pub const Container = struct {
-    head_idx: u32,
-    tail_idx: u32,
     rect: Rect = .{},
     body: Rect = .{},
     content_size: Vec2 = .{ 0, 0 },
     scroll: Vec2 = .{ 0, 0 },
     zindex: u32 = 0,
-    open: bool,
+    open: bool = true,
+    start: u32 = 0xFFFF_FFFF,
+    end: u32 = 0xFFFF_FFFF,
 
-    pub fn compare(_: void, lhs: *Container, rhs: *Container) bool {
+    fn compare(_: void, lhs: *Container, rhs: *Container) bool {
         return lhs.zindex < rhs.zindex;
-    }
-};
-
-pub const Style = struct {
-    pub const Control = enum { text, border, window_bg, title_bg, title_text, panel_bg, button, button_hover, button_focus, base, base_hover, base_focus, scroll_base, scroll_thumb };
-    pub const ColorMap = std.EnumArray(Control, Color);
-
-    var default = Style{};
-
-    size: Vec2 = .{ 68, 10 },
-    padding: i32 = 5,
-    spacing: i32 = 4,
-    indent: i32 = 24,
-    title_height: i32 = 24,
-    scrollbar_size: i32 = 12,
-    thumb_size: i32 = 8,
-    colors: ColorMap = ColorMap.init(.{
-        .text = .{ .r = 0xE6, .g = 0xE6, .b = 0xE6, .a = 0xFF },
-        .border = .{ .r = 0x19, .g = 0x19, .b = 0x19, .a = 0xFF },
-        .window_bg = .{ .r = 0x32, .g = 0x32, .b = 0x32, .a = 0xFF },
-        .title_bg = .{ .r = 0x19, .g = 0x19, .b = 0x19, .a = 0xFF },
-        .title_text = .{ .r = 0xF0, .g = 0xF0, .b = 0xF0, .a = 0xFF },
-        .panel_bg = .{ .r = 0x00, .g = 0x00, .b = 0x00, .a = 0x00 },
-        .button = .{ .r = 0x4B, .g = 0x4B, .b = 0x4B, .a = 0xFF },
-        .button_hover = .{ .r = 0x5F, .g = 0x5F, .b = 0x5F, .a = 0xFF },
-        .button_focus = .{ .r = 0x73, .g = 0x73, .b = 0x73, .a = 0xFF },
-        .base = .{ .r = 0x1E, .g = 0x1E, .b = 0x1E, .a = 0xFF },
-        .base_hover = .{ .r = 0x23, .g = 0x23, .b = 0x23, .a = 0xFF },
-        .base_focus = .{ .r = 0x28, .g = 0x28, .b = 0x28, .a = 0xFF },
-        .scroll_base = .{ .r = 0x2B, .g = 0x2B, .b = 0x2B, .a = 0xFF },
-        .scroll_thumb = .{ .r = 0x1E, .g = 0x1E, .b = 0x1E, .a = 0xFF },
-    }),
-};
-
-pub const Input = struct {
-    pub const Mouse = enum { none, left, right, middle };
-
-    pub const Key = packed struct {
-        shift: bool = false,
-        ctrl: bool = false,
-        alt: bool = false,
-        backspace: bool = false,
-        ret: bool = false,
-    };
-
-    mouse_pos: Vec2 = .{ 0, 0 },
-    last_mouse_pos: Vec2 = .{ 0, 0 },
-    mouse_delta: Vec2 = .{ 0, 0 },
-    scroll_delta: Vec2 = .{ 0, 0 },
-    mouse_down: Mouse = .none,
-    mouse_pressed: Mouse = .none,
-    key_down: i32 = 0,
-    key_pressed: i32 = 0,
-    text: [32]u8 = [_]u8{0} ** 32,
-
-    pub fn mousemove(input: *Input, x: i32, y: i32) void {
-        input.mouse_pos = .{ x, y };
-    }
-
-    pub fn mousedown(input: *Input, x: i32, y: i32, btn: Mouse) void {
-        input.mousemove(x, y);
-        input.mouse_down = btn;
-        input.mouse_pressed = btn;
-    }
-
-    pub fn mouseup(input: *Input, x: i32, y: i32, _: Mouse) void {
-        input.mousemove(x, y);
-        input.mouse_down = .none;
-    }
-
-    pub fn scroll(input: *Input, x: i32, y: i32) void {
-        input.scroll_delta[0] += x;
-        input.scroll_delta[1] += y;
-    }
-
-    pub fn keydown(input: *Input, key: i32) void {
-        input.key_down |= key;
-        input.key_pressed |= key;
-    }
-
-    pub fn keyup(input: *Input, key: i32) void {
-        input.key_down &= ~key;
-    }
-
-    pub fn text(input: *Input, txt: []const u8) void {
-        @memcpy(input.text[0..txt.len], txt);
     }
 };
 
 pub const Context = struct {
     const Self = @This();
 
+    var default_style = Style{};
+
     // callbacks
     textWidth: *const fn ([]const u8) i32 = undefined,
     textHeight: *const fn () i32 = undefined,
 
     // core state
-    style: *Style = &Style.default,
+    style: *Style = &default_style,
     hover: Id = .invalid,
     focus: Id = .invalid,
     last_id: Id = .invalid,
@@ -198,8 +140,8 @@ pub const Context = struct {
     text_stack: std.BoundedArray(u8, 16384) = .{},
 
     // retained pools
-    container_pool: Pool(Container, 16) = undefined,
-    treenode_pool: Pool(void, 16) = undefined,
+    container_pool: util.Pool(Container, Id, 16) = undefined,
+    treenode_pool: util.Pool(void, Id, 16) = undefined,
 
     // input state
     input: Input = .{},
@@ -224,6 +166,13 @@ pub const Context = struct {
         self.clip_stack.deinit();
         self.id_stack.deinit();
         self.layout_stack.deinit();
+    }
+
+    pub fn commands(self: *Self) CommandIter {
+        return .{
+            .containers = self.root_list.items,
+            .commands = self.command_list.items,
+        };
     }
 
     pub fn begin(ctx: *Self) void {
@@ -425,7 +374,7 @@ pub const Context = struct {
         a.max[1] = @max(a.max[1], b.max[1]);
     }
 
-    pub fn mu_layout_set_next(ctx: *Self, r: Rect, next_type: LayoutType) void {
+    pub fn mu_layout_set_next(ctx: *Self, r: Rect, next_type: Layout.Type) void {
         const layout = ctx.getLayout();
         layout.next = r;
         layout.next_type = next_type;
@@ -835,11 +784,7 @@ pub const Context = struct {
 
         // container not found in pool, init new container
         const cnt = ctx.container_pool.init(ctx.frame, id);
-        cnt.* = .{
-            .head_idx = 0xFFFF_FFFF,
-            .tail_idx = 0xFFFF_FFFF,
-            .open = true,
-        };
+        cnt.* = .{};
 
         ctx.bringToFront(cnt);
         return cnt;
@@ -849,7 +794,7 @@ pub const Context = struct {
         ctx.container_stack.append(cnt) catch unreachable;
         ctx.root_list.append(cnt) catch unreachable;
 
-        cnt.head_idx = @truncate(ctx.command_list.items.len);
+        cnt.start = @truncate(ctx.command_list.items.len);
         if (cnt.rect.overlaps(ctx.input.mouse_pos) and (ctx.next_hover_root == null or cnt.zindex > ctx.next_hover_root.?.zindex)) {
             ctx.next_hover_root = cnt;
         }
@@ -967,7 +912,7 @@ pub const Context = struct {
 
     fn endRootContainer(ctx: *Self) void {
         const cnt = ctx.getCurrentContainer();
-        cnt.tail_idx = @truncate(ctx.command_list.items.len);
+        cnt.end = @truncate(ctx.command_list.items.len);
         ctx.popClipRect();
         ctx.popContainer();
     }
@@ -1037,50 +982,10 @@ pub const Context = struct {
             const len = ctx.container_stack.items.len;
             for (0..len) |i| {
                 if (ctx.container_stack.items[len - i - 1] == root) return true;
-                if (ctx.container_stack.items[len - i - 1].head_idx != 0xFFFF_FFFF) break;
+                if (ctx.container_stack.items[len - i - 1].start != 0xFFFF_FFFF) break;
             }
         }
 
         return false;
     }
 };
-
-fn Pool(comptime T: type, comptime size: comptime_int) type {
-    return struct {
-        const Self = @This();
-
-        pub const Item = struct {
-            data: T,
-            id: Id = .invalid,
-            generation: ?u32 = null,
-        };
-
-        buffer: [size]Item = undefined,
-
-        fn init(self: *Self, generation: u32, id: Id) *T {
-            var n: ?u32 = null;
-            var f = generation;
-            for (0..size) |i| {
-                if (self.buffer[i].generation) |last| {
-                    if (last < f) {
-                        f = last;
-                        n = @truncate(i);
-                    }
-                } else {
-                    n = @truncate(i);
-                }
-            }
-
-            const idx = n orelse unreachable;
-            self.buffer[idx] = .{ .data = undefined, .id = id, .generation = generation };
-            return &self.buffer[idx].data;
-        }
-
-        fn get(self: *Self, id: Id) ?*Item {
-            for (0..size) |i| {
-                if (self.buffer[i].id == id) return &self.buffer[i];
-            }
-            return null;
-        }
-    };
-}

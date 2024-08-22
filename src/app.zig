@@ -234,34 +234,33 @@ fn Device(comptime config: Config) type {
         }
 
         fn drawGUI(self: *Self, hdc: os.HDC) void {
-            for (self.gui.root_list.items) |cnt| {
-                for (self.gui.command_list.items[cnt.head_idx..cnt.tail_idx]) |cmd| {
-                    switch (cmd) {
-                        .clip => |data| {
-                            _ = os.SelectClipRgn(hdc, null);
-                            _ = os.IntersectClipRect(hdc, data.rect.x, data.rect.y, data.rect.x + data.rect.w, data.rect.y + data.rect.h);
-                        },
-                        .rect => |data| {
-                            const rc = winrect(data.rect);
-                            const hbr = os.CreateSolidBrush(wincolor(data.color));
-                            _ = os.FillRect(hdc, &rc, hbr);
-                            _ = os.DeleteObject(hbr);
-                        },
-                        .text => |data| drawText(hdc, wincolor(data.color), data.str, data.pos[0], data.pos[1]),
-                        .icon => |data| {
-                            const text = switch (data.id) {
-                                .check => "X",
-                                .close => "x",
-                                .collapsed => ">",
-                                .expanded => "v",
-                            };
-                            const size = textSize(text);
-                            const x = data.rect.x + @divFloor(data.rect.w - size.cx, 2);
-                            const y = data.rect.y + @divFloor(data.rect.h - size.cy, 2);
+            var iter = self.gui.commands();
+            while (iter.next()) |cmd| {
+                switch (cmd) {
+                    .clip => |data| {
+                        _ = os.SelectClipRgn(hdc, null);
+                        _ = os.IntersectClipRect(hdc, data.rect.x, data.rect.y, data.rect.x + data.rect.w, data.rect.y + data.rect.h);
+                    },
+                    .rect => |data| {
+                        const rc = winrect(data.rect);
+                        const hbr = os.CreateSolidBrush(wincolor(data.color));
+                        _ = os.FillRect(hdc, &rc, hbr);
+                        _ = os.DeleteObject(hbr);
+                    },
+                    .text => |data| drawText(hdc, wincolor(data.color), data.str, data.pos[0], data.pos[1]),
+                    .icon => |data| {
+                        const text = switch (data.id) {
+                            .check => "X",
+                            .close => "x",
+                            .collapsed => ">",
+                            .expanded => "v",
+                        };
+                        const size = textSize(text);
+                        const x = data.rect.x + @divFloor(data.rect.w - size.cx, 2);
+                        const y = data.rect.y + @divFloor(data.rect.h - size.cy, 2);
 
-                            drawText(hdc, wincolor(data.color), text, x, y);
-                        },
-                    }
+                        drawText(hdc, wincolor(data.color), text, x, y);
+                    },
                 }
             }
         }
