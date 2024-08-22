@@ -168,16 +168,9 @@ pub const Context = struct {
         self.layout_stack.deinit();
     }
 
-    pub fn commands(self: *Self) CommandIter {
-        return .{
-            .containers = self.root_list.items,
-            .commands = self.command_list.items,
-        };
-    }
-
     pub fn begin(ctx: *Self) void {
-        ctx.command_list.items.len = 0;
-        ctx.root_list.items.len = 0;
+        ctx.command_list.clearRetainingCapacity();
+        ctx.root_list.clearRetainingCapacity();
         ctx.text_stack.len = 0;
         ctx.scroll_target = null;
         ctx.hover_root = ctx.next_hover_root;
@@ -218,6 +211,17 @@ pub const Context = struct {
 
         // sort root containers by zindex
         std.mem.sort(*Container, ctx.root_list.items, {}, Container.compare);
+    }
+
+    pub fn pushCommand(self: *Self, cmd: Command) void {
+        self.command_list.append(cmd) catch unreachable;
+    }
+
+    pub fn commands(self: *Self) CommandIter {
+        return .{
+            .containers = self.root_list.items,
+            .commands = self.command_list.items,
+        };
     }
 
     pub fn setFocus(ctx: *Self, id: Id) void {
@@ -282,16 +286,13 @@ pub const Context = struct {
     }
 
     pub fn setClip(ctx: *Self, rect: Rect) void {
-        ctx.command_list.append(.{ .clip = .{ .rect = rect } }) catch unreachable;
+        ctx.pushCommand(.{ .clip = .{ .rect = rect } });
     }
 
     pub fn drawRect(ctx: *Self, rect: Rect, color: Color) void {
         const r = rect.intersect(ctx.getClipRect());
         if (r.w > 0 and r.h > 0) {
-            ctx.command_list.append(.{ .rect = .{
-                .rect = r,
-                .color = color,
-            } }) catch unreachable;
+            ctx.pushCommand(.{ .rect = .{ .rect = r, .color = color } });
         }
     }
 
@@ -311,11 +312,7 @@ pub const Context = struct {
 
         // add command
         const str_start = ctx.pushText(str);
-        ctx.command_list.append(.{ .text = .{
-            .str = str_start,
-            .pos = pos,
-            .color = color,
-        } }) catch unreachable;
+        ctx.pushCommand(.{ .text = .{ .str = str_start, .pos = pos, .color = color } });
 
         // reset clipping if it was set
         if (clipped != .none) setClip(ctx, unclipped);
@@ -328,11 +325,7 @@ pub const Context = struct {
         if (clipped == .part) ctx.setClip(ctx.getClipRect());
 
         // do icon command
-        ctx.command_list.append(.{ .icon = .{
-            .id = id,
-            .rect = rect,
-            .color = color,
-        } }) catch unreachable;
+        ctx.pushCommand(.{ .icon = .{ .id = id, .rect = rect, .color = color } });
 
         // reset clipping if it was set
         if (clipped != .none) ctx.setClip(unclipped);
@@ -760,7 +753,7 @@ pub const Context = struct {
             ctx.drawFrame(cnt.rect, .panel_bg);
         }
 
-        ctx.container_stack.push(cnt);
+        ctx.container_stack.append(cnt) catch unreachable;
         ctx.pushContainerBody(cnt, cnt.rect, opt);
         ctx.pushClipRect(cnt.body);
     }
