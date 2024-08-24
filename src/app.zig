@@ -19,7 +19,6 @@ pub const Config = struct {
 pub const WindowOptions = struct {
     title: [:0]const u8 = "",
     scale: i32 = 1,
-    fps: f64 = 60.0,
 };
 
 pub fn App(comptime config: Config) type {
@@ -80,8 +79,6 @@ fn Device(comptime config: Config) type {
         hwnd: os.HWND,
         hdc: os.HDC,
         hfont: os.HFONT,
-        timer: std.time.Timer,
-        step_time: f64,
         want_quit: bool = false,
         allocator: std.mem.Allocator,
 
@@ -155,8 +152,6 @@ fn Device(comptime config: Config) type {
                 .hwnd = hwnd,
                 .hdc = hdc,
                 .hfont = hfont,
-                .timer = try std.time.Timer.start(),
-                .step_time = (if (options.fps != 0) 1.0 / options.fps else 0) * std.time.ns_per_s,
                 .gui = if (config.enable_gui) mui.Context.create(allocator, textHeight, textWidth) else {},
                 .allocator = allocator,
             };
@@ -175,12 +170,7 @@ fn Device(comptime config: Config) type {
 
         fn step(self: *Self) bool {
             _ = os.RedrawWindow(self.hwnd, null, null, os.RDW_INVALIDATE | os.RDW_UPDATENOW);
-
-            const now: f64 = @floatFromInt(self.timer.lap());
-            const wait: f64 = self.step_time - now;
-            if (wait > 0) {
-                std.time.sleep(@intFromFloat(wait));
-            }
+            _ = os.DwmFlush();
 
             var msg: os.MSG = undefined;
             while (os.PeekMessageA(&msg, self.hwnd, 0, 0, os.PM_REMOVE) != 0) {
@@ -239,7 +229,7 @@ fn Device(comptime config: Config) type {
                 switch (cmd) {
                     .clip => |data| {
                         _ = os.SelectClipRgn(hdc, null);
-                        _ = os.IntersectClipRect(hdc, data.rect.x, data.rect.y, data.rect.x + data.rect.w, data.rect.y + data.rect.h);
+                        _ = os.IntersectClipRect(hdc, data.rect.left(), data.rect.top(), data.rect.right(), data.rect.bottom());
                     },
                     .rect => |data| {
                         const rc = winrect(data.rect);
@@ -256,8 +246,8 @@ fn Device(comptime config: Config) type {
                             .expanded => "v",
                         };
                         const size = textSize(text);
-                        const x = data.rect.x + @divFloor(data.rect.w - size.cx, 2);
-                        const y = data.rect.y + @divFloor(data.rect.h - size.cy, 2);
+                        const x = data.rect.pos[0] + @divFloor(data.rect.size[0] - size.cx, 2);
+                        const y = data.rect.pos[1] + @divFloor(data.rect.size[1] - size.cy, 2);
 
                         drawText(hdc, wincolor(data.color), text, x, y);
                     },
@@ -326,7 +316,7 @@ fn Device(comptime config: Config) type {
         }
 
         inline fn winrect(self: math.Rect) os.RECT {
-            return os.RECT{ .left = self.x, .top = self.y, .right = self.x + self.w, .bottom = self.y + self.h };
+            return os.RECT{ .left = self.left(), .top = self.top(), .right = self.right(), .bottom = self.bottom() };
         }
 
         inline fn wincolor(self: math.Color) os.COLORREF {

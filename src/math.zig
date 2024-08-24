@@ -1,32 +1,54 @@
 pub const Vec2 = @Vector(2, i32);
 
+pub inline fn add(v: anytype, n: i32) @TypeOf(v) {
+    return v + @as(@TypeOf(v), @splat(n));
+}
+
+pub inline fn sub(v: anytype, n: i32) @TypeOf(v) {
+    return v - @as(@TypeOf(v), @splat(n));
+}
+
 pub const Rect = struct {
-    x: i32 = 0,
-    y: i32 = 0,
-    w: i32 = 0,
-    h: i32 = 0,
+    pos: Vec2 = .{ 0, 0 },
+    size: Vec2 = .{ 0, 0 },
+
+    pub inline fn left(self: *const Rect) i32 {
+        return self.pos[0];
+    }
+
+    pub inline fn top(self: *const Rect) i32 {
+        return self.pos[1];
+    }
+
+    pub inline fn right(self: *const Rect) i32 {
+        return self.pos[0] + self.size[0];
+    }
+
+    pub inline fn bottom(self: *const Rect) i32 {
+        return self.pos[1] + self.size[1];
+    }
 
     pub fn overlaps(r: Rect, p: Vec2) bool {
-        return p[0] >= r.x and p[0] < r.x + r.w and p[1] >= r.y and p[1] < r.y + r.h;
+        return p[0] >= r.left() and p[0] < r.right() and p[1] >= r.top() and p[1] < r.bottom();
     }
 
     pub fn expand(r: Rect, n: i32) Rect {
         return .{
-            .x = r.x - n,
-            .y = r.y - n,
-            .w = r.w + n * 2,
-            .h = r.h + n * 2,
+            .pos = sub(r.pos, n),
+            .size = add(r.size, n * 2),
         };
     }
 
     pub fn intersect(r1: Rect, r2: Rect) Rect {
-        const x1 = @max(r1.x, r2.x);
-        const y1 = @max(r1.y, r2.y);
-        var x2 = @min(r1.x + r1.w, r2.x + r2.w);
-        var y2 = @min(r1.y + r1.h, r2.y + r2.h);
-        if (x2 < x1) x2 = x1;
-        if (y2 < y1) y2 = y1;
-        return .{ .x = x1, .y = y1, .w = x2 - x1, .h = y2 - y1 };
+        const pos1 = @max(r1.pos, r2.pos);
+        var pos2 = @min(r1.pos + r1.size, r2.pos + r2.size);
+        if (pos2[0] < pos1[0]) pos2[0] = pos1[0];
+        if (pos2[1] < pos1[1]) pos2[1] = pos1[1];
+
+        return .{
+            .pos = pos1,
+            .size = pos2 - pos1,
+        };
     }
 };
 

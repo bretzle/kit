@@ -11,7 +11,7 @@ const Color = math.Color;
 pub const Style = @import("mui/style.zig");
 pub const Input = @import("mui/input.zig");
 
-const unclipped = Rect{ .w = 0x1000000, .h = 0x1000000 };
+const unclipped = Rect{ .size = .{ 0x1000000, 0x1000000 } };
 
 pub const Clip = enum { none, part, all };
 
@@ -260,8 +260,8 @@ pub const Context = struct {
 
     pub fn checkClip(ctx: *Self, r: Rect) Clip {
         const cr = ctx.getClipRect();
-        if (r.x > cr.x + cr.w or r.x + r.w < cr.x or r.y > cr.y + cr.h or r.y + r.h < cr.y) return .all;
-        if (r.x >= cr.x and r.x + r.w <= cr.x + cr.w and r.y >= cr.y and r.y + r.h <= cr.y + cr.h) return .none;
+        if (r.pos[0] > cr.pos[0] + cr.size[0] or r.pos[0] + r.size[0] < cr.pos[0] or r.pos[1] > cr.pos[1] + cr.size[1] or r.pos[1] + r.size[1] < cr.pos[1]) return .all;
+        if (r.pos[0] >= cr.pos[0] and r.pos[0] + r.size[0] <= cr.pos[0] + cr.size[0] and r.pos[1] >= cr.pos[1] and r.pos[1] + r.size[1] <= cr.pos[1] + cr.size[1]) return .none;
         return .part;
     }
 
@@ -291,20 +291,20 @@ pub const Context = struct {
 
     pub fn drawRect(ctx: *Self, rect: Rect, color: Color) void {
         const r = rect.intersect(ctx.getClipRect());
-        if (r.w > 0 and r.h > 0) {
+        if (r.size[0] > 0 and r.size[1] > 0) {
             ctx.pushCommand(.{ .rect = .{ .rect = r, .color = color } });
         }
     }
 
     pub fn drawBox(ctx: *Self, rect: Rect, color: Color) void {
-        ctx.drawRect(.{ .x = rect.x + 1, .y = rect.y, .w = rect.w - 2, .h = 1 }, color);
-        ctx.drawRect(.{ .x = rect.x + 1, .y = rect.y + rect.h - 1, .w = rect.w - 2, .h = 1 }, color);
-        ctx.drawRect(.{ .x = rect.x, .y = rect.y, .w = 1, .h = rect.h }, color);
-        ctx.drawRect(.{ .x = rect.x + rect.w - 1, .y = rect.y, .w = 1, .h = rect.h }, color);
+        ctx.drawRect(.{ .pos = .{ rect.pos[0] + 1, rect.pos[1] }, .size = .{ rect.size[0] - 2, 1 } }, color);
+        ctx.drawRect(.{ .pos = .{ rect.pos[0] + 1, rect.pos[1] + rect.size[1] - 1 }, .size = .{ rect.size[0] - 2, 1 } }, color);
+        ctx.drawRect(.{ .pos = .{ rect.pos[0], rect.pos[1] }, .size = .{ 1, rect.size[1] } }, color);
+        ctx.drawRect(.{ .pos = .{ rect.pos[0] + rect.size[0] - 1, rect.pos[1] }, .size = .{ 1, rect.size[1] } }, color);
     }
 
     pub fn drawText(ctx: *Self, str: []const u8, pos: Vec2, color: Color) void {
-        const rect = Rect{ .x = pos[0], .y = pos[1], .w = ctx.textWidth(str), .h = ctx.textHeight() };
+        const rect = Rect{ .pos = pos, .size = .{ ctx.textWidth(str), ctx.textHeight() } };
 
         const clipped = checkClip(ctx, rect);
         if (clipped == .all) return;
@@ -361,8 +361,8 @@ pub const Context = struct {
         _ = ctx.layout_stack.pop();
         // inherit position/next_row/max from child layout if they are greater
         const a = ctx.getLayout();
-        a.position[0] = @max(a.position[0], b.position[0] + b.body.x - a.body.x);
-        a.next_row = @max(a.next_row, b.next_row + b.body.y - a.body.y);
+        a.position[0] = @max(a.position[0], b.position[0] + b.body.pos[0] - a.body.pos[0]);
+        a.next_row = @max(a.next_row, b.next_row + b.body.pos[1] - a.body.pos[1]);
         a.max[0] = @max(a.max[0], b.max[0]);
         a.max[1] = @max(a.max[1], b.max[1]);
     }
@@ -393,31 +393,30 @@ pub const Context = struct {
             }
 
             // position
-            res.x = layout.position[0];
-            res.y = layout.position[1];
+            res.pos = layout.position;
 
             // size
-            res.w = if (layout.items > 0) layout.widths.buffer[@intCast(layout.item_index)] else layout.size[0];
-            res.h = layout.size[1];
-            if (res.w == 0) res.w = style.size[0] + style.padding * 2;
-            if (res.h == 0) res.h = style.size[1] + style.padding * 2;
-            if (res.w < 0) res.w += layout.body.w - res.x + 1;
-            if (res.h < 0) res.h += layout.body.h - res.y + 1;
+            res.size[0] = if (layout.items > 0) layout.widths.buffer[@intCast(layout.item_index)] else layout.size[0];
+            res.size[1] = layout.size[1];
+            if (res.size[0] == 0) res.size[0] = style.size[0] + style.padding * 2;
+            if (res.size[1] == 0) res.size[1] = style.size[1] + style.padding * 2;
+            if (res.size[0] < 0) res.size[0] += layout.body.size[0] - res.pos[0] + 1;
+            if (res.size[1] < 0) res.size[1] += layout.body.size[1] - res.pos[1] + 1;
 
             layout.item_index += 1;
         }
 
         // update position
-        layout.position[0] += res.w + style.padding;
-        layout.next_row = @max(layout.next_row, res.y + res.h + style.spacing);
+        layout.position[0] += res.size[0] + style.padding;
+        layout.next_row = @max(layout.next_row, res.pos[1] + res.size[1] + style.spacing);
 
         // apply body offset
-        res.x += layout.body.x;
-        res.y += layout.body.y;
+        res.pos[0] += layout.body.pos[0];
+        res.pos[1] += layout.body.pos[1];
 
         // update max position
-        layout.max[0] = @max(layout.max[0], res.x + res.w);
-        layout.max[1] = @max(layout.max[1], res.y + res.h);
+        layout.max[0] = @max(layout.max[0], res.pos[0] + res.size[0]);
+        layout.max[1] = @max(layout.max[1], res.pos[1] + res.size[1]);
 
         ctx.last_rect = res;
         return res;
@@ -432,13 +431,13 @@ pub const Context = struct {
     pub fn drawControlText(ctx: *Self, str: []const u8, rect: Rect, control: Style.Control, opt: Opt) void {
         const tw = ctx.textWidth(str);
         ctx.pushClipRect(rect);
-        const y = rect.y + @divFloor(rect.h - ctx.textHeight(), 2);
+        const y = rect.pos[1] + @divFloor(rect.size[1] - ctx.textHeight(), 2);
         const x = if (opt.aligncenter)
-            rect.x + @divFloor(rect.w - tw, 2)
+            rect.pos[0] + @divFloor(rect.size[0] - tw, 2)
         else if (opt.alignright)
-            rect.x + rect.w - tw - ctx.style.padding
+            rect.pos[0] + rect.size[0] - tw - ctx.style.padding
         else
-            rect.x + ctx.style.padding;
+            rect.pos[0] + ctx.style.padding;
 
         ctx.drawText(str, .{ x, y }, ctx.style.colors.get(control));
         ctx.popClipRect();
@@ -486,12 +485,12 @@ pub const Context = struct {
                 const word = p;
                 while (p < text.len and text[p] != ' ' and text[p] != '\n') p += 1;
                 w += ctx.textWidth(text[word..p]);
-                if (w > r.w and end_idx != start_idx) break;
+                if (w > r.size[0] and end_idx != start_idx) break;
                 if (p < text.len) w += ctx.textWidth(std.mem.asBytes(&text[p]));
                 end_idx = p;
                 p += 1;
             }
-            ctx.drawText(text[start_idx..end_idx], .{ r.x, r.y }, color);
+            ctx.drawText(text[start_idx..end_idx], .{ r.pos[0], r.pos[1] }, color);
             p = end_idx + 1;
         }
 
@@ -527,7 +526,7 @@ pub const Context = struct {
         var result = Result{};
         const id = ctx.getId(std.mem.asBytes(&state));
         const r = ctx.mu_layout_next();
-        const box = Rect{ .x = r.x, .y = r.y, .w = r.h, .h = r.h };
+        const box = Rect{ .pos = r.pos, .size = .{ r.size[1], r.size[1] } };
         ctx.updateControl(id, r, .{});
 
         // handle click
@@ -539,7 +538,7 @@ pub const Context = struct {
         // draw
         ctx.drawControlFrame(id, box, .base, .{});
         if (state.*) ctx.drawIcon(.check, box, ctx.style.colors.get(.text));
-        const rr = Rect{ .x = r.x + box.w, .y = r.y, .w = r.w - box.w, .h = r.h };
+        const rr = Rect{ .pos = .{ r.pos[0] + box.size[0], r.pos[1] }, .size = .{ r.size[0] - box.size[0], r.size[1] } };
         ctx.drawControlText(label, rr, .text, .{});
 
         return result;
@@ -580,7 +579,7 @@ pub const Context = struct {
 
         // handle input
         if (ctx.focus == id and (ctx.input.mouse_down == .left or ctx.input.mouse_pressed == .left)) {
-            v = @divTrunc(low + (ctx.input.mouse_pos[0] - base.x) * (high - low), base.w);
+            v = @divTrunc(low + (ctx.input.mouse_pos[0] - base.pos[0]) * (high - low), base.size[0]);
             const step_: i32 = @intCast(step);
             if (step_ != 0) {
                 v = @divTrunc(v + @divTrunc(step_, 2), step_) * step_;
@@ -597,8 +596,8 @@ pub const Context = struct {
 
         // draw thumb
         const w = ctx.style.thumb_size;
-        const x = @divFloor((v - low) * (base.w - w), (high - low));
-        const thumb = Rect{ .x = base.x + x, .y = base.y, .w = w, .h = base.h };
+        const x = @divFloor((v - low) * (base.size[0] - w), (high - low));
+        const thumb = Rect{ .pos = .{ base.pos[0] + x, base.pos[1] }, .size = .{ w, base.size[1] } };
         ctx.drawControlFrame(id, thumb, .button, opt);
 
         // draw text
@@ -642,7 +641,7 @@ pub const Context = struct {
         if (!cnt.open) return false;
         ctx.id_stack.append(id) catch unreachable;
 
-        if (cnt.rect.w == 0) cnt.rect = bounds;
+        if (cnt.rect.size[0] == 0) cnt.rect = bounds;
         ctx.beginRootContainer(cnt);
 
         const rect = cnt.rect;
@@ -656,7 +655,7 @@ pub const Context = struct {
         // do title bar
         if (!opt.notitle) {
             var tr = rect;
-            tr.h = ctx.style.title_height;
+            tr.size[1] = ctx.style.title_height;
             ctx.drawFrame(tr, .title_bg);
 
             // title text
@@ -665,18 +664,18 @@ pub const Context = struct {
                 ctx.updateControl(iid, tr, opt);
                 ctx.drawControlText(title, tr, .title_text, opt);
                 if (iid == ctx.focus and ctx.input.mouse_down == .left) {
-                    cnt.rect.x += ctx.input.mouse_delta[0];
-                    cnt.rect.y += ctx.input.mouse_delta[1];
+                    cnt.rect.pos[0] += ctx.input.mouse_delta[0];
+                    cnt.rect.pos[1] += ctx.input.mouse_delta[1];
                 }
-                body.y += tr.h;
-                body.h -= tr.h;
+                body.pos[1] += tr.size[1];
+                body.size[1] -= tr.size[1];
             }
 
             // close button
             if (!opt.noclose) {
                 const iid = ctx.getId("!close");
-                const r = Rect{ .x = tr.x + tr.w - tr.h, .y = tr.y, .w = tr.h, .h = tr.h };
-                tr.w -= r.w;
+                const r = Rect{ .pos = .{ tr.pos[0] + tr.size[0] - tr.size[1], tr.pos[1] }, .size = .{ tr.size[1], tr.size[1] } };
+                tr.size[0] -= r.size[0];
                 ctx.drawIcon(.close, r, ctx.style.colors.get(.title_text));
                 ctx.updateControl(iid, r, opt);
                 if (ctx.input.mouse_pressed == .left and iid == ctx.focus) {
@@ -691,19 +690,17 @@ pub const Context = struct {
         if (!opt.noresize) {
             const sz = ctx.style.title_height;
             const iid = ctx.getId("!resize");
-            const r = Rect{ .x = rect.x + rect.w - sz, .y = rect.y + rect.h - sz, .w = sz, .h = sz };
+            const r = Rect{ .pos = math.sub(rect.pos + rect.size, sz), .size = .{ sz, sz } };
             ctx.updateControl(iid, r, opt);
             if (id == ctx.focus and ctx.input.mouse_down == .left) {
-                cnt.rect.w = @max(96, cnt.rect.w + ctx.input.mouse_delta[0]);
-                cnt.rect.h = @max(64, cnt.rect.h + ctx.input.mouse_delta[1]);
+                cnt.rect.size = @max(cnt.rect.size + ctx.input.mouse_delta, Vec2{ 96, 64 });
             }
         }
 
         // resize to content size
         if (opt.autosize) {
             const r = ctx.getLayout().body;
-            cnt.rect.w = cnt.content_size[0] + (cnt.rect.w - r.w);
-            cnt.rect.h = cnt.content_size[1] + (cnt.rect.h - r.h);
+            cnt.rect.size = cnt.content_size + (cnt.rect.size - r.size);
         }
 
         if (opt.popup and ctx.input.mouse_pressed != .none and ctx.hover_root != cnt) {
@@ -724,7 +721,7 @@ pub const Context = struct {
         const cnt = ctx.getContainer(name);
         ctx.hover_root = cnt;
         ctx.next_hover_root = cnt;
-        cnt.rect = .{ .x = ctx.input.mouse_pos[0], .y = ctx.input.mouse_pos[1], .w = 1, .h = 1 };
+        cnt.rect = .{ .pos = ctx.input.mouse_pos, .size = .{ 1, 1 } };
         cnt.open = true;
         ctx.bringToFront(cnt);
     }
@@ -804,7 +801,7 @@ pub const Context = struct {
 
     fn pushLayout(ctx: *Self, body: Rect, scroll: Vec2) void {
         const layout = Layout{
-            .body = .{ .x = body.x - scroll[0], .y = body.y - scroll[1], .w = body.w, .h = body.h },
+            .body = .{ .pos = body.pos - scroll, .size = body.size },
             .max = .{ -0x1000000, -0x1000000 },
         };
         ctx.layout_stack.append(layout) catch unreachable;
@@ -819,8 +816,8 @@ pub const Context = struct {
         ctx.pushClipRect(body.*);
 
         // resize body to make space for scrollbars
-        if (cs[1] > cnt.body.h) body.w -= sz;
-        if (cs[0] > cnt.body.w) body.h -= sz;
+        if (cs[1] > cnt.body.size[1]) body.size[0] -= sz;
+        if (cs[0] > cnt.body.size[0]) body.size[1] -= sz;
 
         ctx.scrollbarVertical(cnt, body, cs);
         ctx.scrollbarHorizontal(cnt, body, cs);
@@ -831,20 +828,20 @@ pub const Context = struct {
     // only the references to `x|y` `w|h` need to be switched
     fn scrollbarVertical(ctx: *Self, cnt: *Container, b: *Rect, cs: Vec2) void {
         // only add scrollbar if content size is larger than body
-        const maxscroll = cs[1] - b.h;
+        const maxscroll = cs[1] - b.size[1];
 
-        if (maxscroll > 0 and b.h > 0) {
+        if (maxscroll > 0 and b.size[1] > 0) {
             const id = ctx.getId("!scrollbar_y");
 
             // get sizing / positioning
             var base = b.*;
-            base.x = b.x + b.w;
-            base.w = ctx.style.scrollbar_size;
+            base.pos[0] = b.pos[0] + b.size[0];
+            base.size[0] = ctx.style.scrollbar_size;
 
             // handle input
             ctx.updateControl(id, base, .{});
             if (ctx.focus == id and ctx.input.mouse_down == .left) {
-                cnt.scroll[1] += @divTrunc(ctx.input.mouse_delta[1] * cs[1], base.h);
+                cnt.scroll[1] += @divTrunc(ctx.input.mouse_delta[1] * cs[1], base.size[1]);
             }
             // clamp scroll to limits
             cnt.scroll[1] = std.math.clamp(cnt.scroll[1], 0, maxscroll);
@@ -852,8 +849,8 @@ pub const Context = struct {
             // draw base and thumb
             ctx.drawFrame(base, .scroll_base);
             var thumb = base;
-            thumb.h = @max(ctx.style.thumb_size, @divTrunc(base.h * b.h, cs[1]));
-            thumb.y += @divTrunc(cnt.scroll[1] * (base.h - thumb.h), maxscroll);
+            thumb.size[1] = @max(ctx.style.thumb_size, @divTrunc(base.size[1] * b.size[1], cs[1]));
+            thumb.pos[1] += @divTrunc(cnt.scroll[1] * (base.size[1] - thumb.size[1]), maxscroll);
             ctx.drawFrame(thumb, .scroll_thumb);
 
             // set this as the scroll_target (will get scrolled on mousewheel)
@@ -866,20 +863,20 @@ pub const Context = struct {
 
     fn scrollbarHorizontal(ctx: *Self, cnt: *Container, b: *Rect, cs: Vec2) void {
         // only add scrollbar if content size is larger than body
-        const maxscroll = cs[0] - b.w;
+        const maxscroll = cs[0] - b.size[0];
 
-        if (maxscroll > 0 and b.w > 0) {
+        if (maxscroll > 0 and b.size[0] > 0) {
             const id = ctx.getId("!scrollbar_x");
 
             // get sizing / positioning
             var base = b.*;
-            base.y = b.y + b.h;
-            base.h = ctx.style.scrollbar_size;
+            base.pos[1] = b.pos[1] + b.size[1];
+            base.size[1] = ctx.style.scrollbar_size;
 
             // handle input
             ctx.updateControl(id, base, .{});
             if (ctx.focus == id and ctx.input.mouse_down == .left) {
-                cnt.scroll[0] += @divTrunc(ctx.input.mouse_delta[0] * cs[0], base.w);
+                cnt.scroll[0] += @divTrunc(ctx.input.mouse_delta[0] * cs[0], base.size[0]);
             }
             // clamp scroll to limits
             cnt.scroll[0] = std.math.clamp(cnt.scroll[0], 0, maxscroll);
@@ -887,8 +884,8 @@ pub const Context = struct {
             // draw base and thumb
             ctx.drawFrame(base, .scroll_base);
             var thumb = base;
-            thumb.w = @max(ctx.style.thumb_size, @divTrunc(base.w * b.w, cs[0]));
-            thumb.x += @divTrunc(cnt.scroll[0] * (base.w - thumb.w), maxscroll);
+            thumb.size[0] = @max(ctx.style.thumb_size, @divTrunc(base.size[0] * b.size[0], cs[0]));
+            thumb.pos[0] += @divTrunc(cnt.scroll[0] * (base.size[0] - thumb.size[0]), maxscroll);
             ctx.drawFrame(thumb, .scroll_thumb);
 
             // set this as the scroll_target (will get scrolled on mousewheel)
@@ -913,8 +910,7 @@ pub const Context = struct {
     fn popContainer(ctx: *Self) void {
         const cnt = ctx.getCurrentContainer();
         const layout = ctx.getLayout();
-        cnt.content_size[0] = layout.max[0] - layout.body.x;
-        cnt.content_size[1] = layout.max[1] - layout.body.y;
+        cnt.content_size = layout.max - layout.body.pos;
         _ = ctx.container_stack.pop();
         _ = ctx.layout_stack.pop();
         ctx.popId();
@@ -952,9 +948,9 @@ pub const Context = struct {
             ctx.drawControlFrame(id, r, .button, .{});
         }
 
-        ctx.drawIcon(if (expanded) .expanded else .collapsed, .{ .x = r.x, .y = r.y, .w = r.h, .h = r.h }, ctx.style.colors.get(.text));
-        r.x += r.h - ctx.style.padding;
-        r.w -= r.h - ctx.style.padding;
+        ctx.drawIcon(if (expanded) .expanded else .collapsed, .{ .pos = r.pos, .size = .{ r.size[1], r.size[1] } }, ctx.style.colors.get(.text));
+        r.pos[0] += r.size[1] - ctx.style.padding;
+        r.size[0] -= r.size[1] - ctx.style.padding;
         ctx.drawControlText(label, r, .text, .{});
 
         return expanded;

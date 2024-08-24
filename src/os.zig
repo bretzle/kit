@@ -448,3 +448,5 @@ pub const MK_LBUTTON = 1;
 pub const MK_RBUTTON = 2;
 
 pub extern "gdi32" fn CreateFontA(cHeight: i32, cWidth: i32, cEscapement: i32, cOrientation: i32, cWeight: i32, bItalic: u32, bUnderline: u32, bStrikeOut: u32, iCharSet: u32, iOutPrecision: u32, iClipPrecision: u32, iQuality: u32, iPitchAndFamily: u32, pszFaceName: ?LPCSTR) callconv(WINAPI) ?HFONT;
+
+pub extern "dwmapi" fn DwmFlush() callconv(WINAPI) HRESULT;

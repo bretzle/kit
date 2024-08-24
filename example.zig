@@ -1,6 +1,7 @@
 const std = @import("std");
 const kit = @import("kit");
 const Color = kit.RGBA;
+const Vec2 = kit.math.Vec2;
 
 const MyApp = kit.App(.{
     .context = Game,
@@ -22,12 +23,11 @@ const Game = struct {
         g.begin();
         defer g.end();
 
-        if (g.beginWindowEx("Demo Window", .{ .x = 10, .y = 10, .w = 300, .h = 450 }, .{})) {
+        if (g.beginWindowEx("Demo Window", .{ .pos = .{ 10, 10 }, .size = .{ 300, 450 } }, .{})) {
             defer g.endWindow();
 
             const win = g.getCurrentContainer();
-            win.rect.w = @max(win.rect.w, 240);
-            win.rect.h = @max(win.rect.h, 300);
+            win.rect.size = @max(win.rect.size, Vec2{ 240, 300 });
 
             // window info
             if (g.mu_header_ex("Window Info", .{})) {
@@ -36,9 +36,9 @@ const Game = struct {
 
                 g.mu_layout_row(2, &.{ 62, -1 }, 0);
                 g.mu_label("Position:");
-                g.mu_label(std.fmt.bufPrint(&buf, "{d}, {d}", .{ cnt.rect.x, cnt.rect.y }) catch unreachable);
+                g.mu_label(std.fmt.bufPrint(&buf, "{any}", .{cnt.rect.pos}) catch unreachable);
                 g.mu_label("Size:");
-                g.mu_label(std.fmt.bufPrint(&buf, "{d}, {d}", .{ cnt.rect.w, cnt.rect.h }) catch unreachable);
+                g.mu_label(std.fmt.bufPrint(&buf, "{any}", .{cnt.rect.size}) catch unreachable);
             }
 
             // labels + buttons
