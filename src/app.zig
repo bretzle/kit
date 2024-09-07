@@ -35,14 +35,23 @@ pub fn App(comptime config: Config) type {
         pub fn start(options: WindowOptions) !void {
             const allocator = gpa.allocator();
 
-            var context = try config.context.create();
+            const CreateFn = @TypeOf(config.context.create);
+            const CreateInfo = @typeInfo(CreateFn);
+
+            var context = if (CreateInfo.Fn.params.len == 0)
+                config.context.create()
+            else
+                try config.context.create(allocator);
             defer context.destroy();
 
             const window = try Window.create(allocator, options);
             defer window.destroy();
 
             while (window.step()) {
-                context.update(&window.gui);
+                if (config.enable_gui)
+                    context.update(&window.gui)
+                else
+                    context.update();
                 context.render(window.canvas);
             }
         }
