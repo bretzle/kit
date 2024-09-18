@@ -21,6 +21,10 @@ pub const WindowOptions = struct {
     scale: i32 = 1,
 };
 
+pub const Event = union(enum) {
+    key: struct { keycode: KeyCode, state: enum { down, up } },
+};
+
 pub fn App(comptime config: Config) type {
     comptime util.isValidContext(config.context);
     comptime util.isValidColor(config.color);
@@ -44,7 +48,7 @@ pub fn App(comptime config: Config) type {
                 try config.context.create(allocator);
             defer context.destroy();
 
-            const window = try Window.create(allocator, options);
+            const window = try Window.create(allocator, context, options);
             defer window.destroy();
 
             while (window.step()) {
@@ -81,6 +85,7 @@ fn Device(comptime config: Config) type {
 
         canvas: []config.color,
         gui: if (config.enable_gui) mui.Context else void,
+        user_ctx: *Context,
 
         width: u32,
         height: u32,
@@ -91,7 +96,7 @@ fn Device(comptime config: Config) type {
         want_quit: bool = false,
         allocator: std.mem.Allocator,
 
-        fn create(allocator: std.mem.Allocator, options: WindowOptions) !*Self {
+        fn create(allocator: std.mem.Allocator, user_ctx: *Context, options: WindowOptions) !*Self {
             const self = try allocator.create(Self);
             const canvas = try allocator.alloc(Color, config.width * config.height);
 
@@ -162,6 +167,7 @@ fn Device(comptime config: Config) type {
                 .hdc = hdc,
                 .hfont = hfont,
                 .gui = if (config.enable_gui) mui.Context.create(allocator, textHeight, textWidth) else {},
+                .user_ctx = user_ctx,
                 .allocator = allocator,
             };
 
@@ -304,6 +310,16 @@ fn Device(comptime config: Config) type {
                 os.WM_RBUTTONUP => if (config.enable_gui) self.gui.input.mouseup(os.GET_X_LPARAM(lParam), os.GET_Y_LPARAM(lParam), .right),
                 os.WM_RBUTTONDOWN => if (config.enable_gui) self.gui.input.mousedown(os.GET_X_LPARAM(lParam), os.GET_Y_LPARAM(lParam), .right),
                 os.WM_MOUSEWHEEL => if (config.enable_gui) self.gui.input.scroll(0, -@divTrunc(os.GET_WHEEL_DELTA_WPARAM(wParam), 5)),
+
+                os.WM_KEYDOWN, os.WM_SYSKEYDOWN => if (@hasDecl(Context, "event")) {
+                    const keycode = os.HIWORD(lParam) & 0x1FF;
+                    self.user_ctx.event(.{ .key = .{ .keycode = @enumFromInt(keycode), .state = .down } });
+                },
+                os.WM_KEYUP, os.WM_SYSKEYUP => if (@hasDecl(Context, "event")) {
+                    const keycode = os.HIWORD(lParam) & 0x1FF;
+                    self.user_ctx.event(.{ .key = .{ .keycode = @enumFromInt(keycode), .state = .up } });
+                },
+
                 else => {},
             }
 
@@ -333,3 +349,124 @@ fn Device(comptime config: Config) type {
         }
     };
 }
+
+pub const KeyCode = enum(u16) {
+    key0 = 0x000B,
+    key1 = 0x0002,
+    key2 = 0x0003,
+    key3 = 0x0004,
+    key4 = 0x0005,
+    key5 = 0x0006,
+    key6 = 0x0007,
+    key7 = 0x0008,
+    key8 = 0x0009,
+    key9 = 0x000A,
+    a = 0x001E,
+    b = 0x0030,
+    c = 0x002E,
+    d = 0x0020,
+    e = 0x0012,
+    f = 0x0021,
+    g = 0x0022,
+    h = 0x0023,
+    i = 0x0017,
+    j = 0x0024,
+    k = 0x0025,
+    l = 0x0026,
+    m = 0x0032,
+    n = 0x0031,
+    o = 0x0018,
+    p = 0x0019,
+    q = 0x0010,
+    r = 0x0013,
+    s = 0x001F,
+    t = 0x0014,
+    u = 0x0016,
+    v = 0x002F,
+    w = 0x0011,
+    x = 0x002D,
+    y = 0x0015,
+    z = 0x002C,
+    apostrophe = 0x0028,
+    backslash = 0x002B,
+    comma = 0x0033,
+    equal = 0x000D,
+    graveaccent = 0x0029,
+    leftbracket = 0x001A,
+    minus = 0x000C,
+    period = 0x0034,
+    rightbracket = 0x001B,
+    semicolon = 0x0027,
+    slash = 0x0035,
+    world2 = 0x0056,
+    backspace = 0x000E,
+    delete = 0x0153,
+    end = 0x014F,
+    enter = 0x001C,
+    escape = 0x0001,
+    home = 0x0147,
+    insert = 0x0152,
+    menu = 0x015D,
+    pagedown = 0x0151,
+    pageup = 0x0149,
+    pause = 0x0045,
+    space = 0x0039,
+    tab = 0x000F,
+    capslock = 0x003A,
+    numlock = 0x0145,
+    scrolllock = 0x0046,
+    f1 = 0x003B,
+    f2 = 0x003C,
+    f3 = 0x003D,
+    f4 = 0x003E,
+    f5 = 0x003F,
+    f6 = 0x0040,
+    f7 = 0x0041,
+    f8 = 0x0042,
+    f9 = 0x0043,
+    f10 = 0x0044,
+    f11 = 0x0057,
+    f12 = 0x0058,
+    f13 = 0x0064,
+    f14 = 0x0065,
+    f15 = 0x0066,
+    f16 = 0x0067,
+    f17 = 0x0068,
+    f18 = 0x0069,
+    f19 = 0x006A,
+    f20 = 0x006B,
+    f21 = 0x006C,
+    f22 = 0x006D,
+    f23 = 0x006E,
+    f24 = 0x0076,
+    leftalt = 0x0038,
+    leftcontrol = 0x001D,
+    leftshift = 0x002A,
+    leftsuper = 0x015B,
+    printscreen = 0x0137,
+    rightalt = 0x0138,
+    rightcontrol = 0x011D,
+    rightshift = 0x0036,
+    rightsuper = 0x015C,
+    down = 0x0150,
+    left = 0x014B,
+    right = 0x014D,
+    up = 0x0148,
+    kp0 = 0x0052,
+    kp1 = 0x004F,
+    kp2 = 0x0050,
+    kp3 = 0x0051,
+    kp4 = 0x004B,
+    kp5 = 0x004C,
+    kp6 = 0x004D,
+    kp7 = 0x0047,
+    kp8 = 0x0048,
+    kp9 = 0x0049,
+    kpadd = 0x004E,
+    kpdecimal = 0x0053,
+    kpdivide = 0x0135,
+    kpenter = 0x011C,
+    kpmultiply = 0x0037,
+    kpsubtract = 0x004A,
+    _,
+};

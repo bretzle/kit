@@ -15,8 +15,10 @@ const Game = struct {
     checks: [3]bool = .{ true, false, true },
     bg: [3]u8 = .{ 0x87, 0x50, 0x7F },
 
-    pub fn create() !Game {
-        return .{};
+    pub fn create(allocator: std.mem.Allocator) !*Game {
+        const self = try allocator.create(Game);
+        self.* = .{};
+        return self;
     }
 
     pub fn update(self: *Game, g: *kit.Gui) void {
@@ -123,6 +125,10 @@ const Game = struct {
     }
 
     pub fn render(_: *Game, _: []Color) void {}
+
+    pub fn event(_: *Game, ev: kit.Event) void {
+        std.debug.print("event: {any}\n", .{ev});
+    }
 
     pub fn destroy(_: *Game) void {}
 };
