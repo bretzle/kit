@@ -245,6 +245,8 @@ pub const SW_FORCEMINIMIZE = 11;
 
 pub extern "user32" fn ShowWindow(hWnd: ?HWND, nCmdShow: u32) callconv(WINAPI) BOOL;
 
+pub extern "user32" fn UpdateWindow(hWnd: ?HWND) callconv(WINAPI) BOOL;
+
 pub const BITMAPINFOHEADER = extern struct {
     biSize: u32 = @sizeOf(BITMAPINFOHEADER),
     biWidth: i32 = 0,
@@ -352,6 +354,8 @@ pub const RDW_NOFRAME = 0x0800;
 
 pub extern "user32" fn RedrawWindow(hwnd: ?HWND, lprcUpdate: ?*const RECT, hrgnUpdate: ?HRGN, flags: UINT) callconv(WINAPI) BOOL;
 
+pub extern "user32" fn InvalidateRect(hwnd: ?HWND, lpRect: ?*const RECT, bErase: BOOL) callconv(WINAPI) BOOL;
+
 pub const PAINTSTRUCT = extern struct {
     hdc: ?HDC,
     fErase: BOOL,
@@ -450,3 +454,9 @@ pub const MK_RBUTTON = 2;
 pub extern "gdi32" fn CreateFontA(cHeight: i32, cWidth: i32, cEscapement: i32, cOrientation: i32, cWeight: i32, bItalic: u32, bUnderline: u32, bStrikeOut: u32, iCharSet: u32, iOutPrecision: u32, iClipPrecision: u32, iQuality: u32, iPitchAndFamily: u32, pszFaceName: ?LPCSTR) callconv(WINAPI) ?HFONT;
 
 pub extern "dwmapi" fn DwmFlush() callconv(WINAPI) HRESULT;
+
+pub extern "user32" fn GetLastError() callconv(WINAPI) DWORD;
+
+pub extern "user32" fn PostQuitMessage(nExitCode: i32) callconv(WINAPI) void;
+
+pub extern "user32" fn GetKeyState(nVirtKey: i32) callconv(WINAPI) u16;

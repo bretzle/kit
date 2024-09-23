@@ -1,138 +1,77 @@
 const std = @import("std");
 const kit = @import("kit");
-const Color = kit.RGBA;
-const Vec2 = kit.math.Vec2;
 
-const MyApp = kit.App(.{
-    .context = Game,
-    .color = Color,
-    .width = 320,
-    .height = 470,
-    .enable_gui = true,
-});
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-const Game = struct {
-    checks: [3]bool = .{ true, false, true },
-    bg: [3]u8 = .{ 0x87, 0x50, 0x7F },
+const RGBA8 = packed struct { r: u8, g: u8, b: u8, a: u8 };
+const RGB5 = packed struct { r: u5, g: u5, b: u5, a: u1 };
+const BGR5 = packed struct { b: u5, g: u5, r: u5, a: u1 };
 
-    pub fn create(allocator: std.mem.Allocator) !*Game {
-        const self = try allocator.create(Game);
-        self.* = .{};
+const colors = [3]type{ RGBA8, RGB5, BGR5 };
+
+const DemoUserContext = struct {
+    const Self = @This();
+
+    pub const fps = 59.5;
+    pub const color = BGR5;
+
+    color: usize = 2,
+    width: u32 = 320,
+    height: u32 = 240,
+    frame: usize = 0,
+    allocator: std.mem.Allocator,
+
+    pub fn create(allocator: std.mem.Allocator) anyerror!*Self {
+        const self = try allocator.create(Self);
+        self.* = .{ .allocator = allocator };
         return self;
     }
 
-    pub fn update(self: *Game, g: *kit.Gui) void {
-        g.begin();
-        defer g.end();
+    pub fn destroy(self: *Self) void {
+        self.allocator.destroy(self);
+    }
 
-        if (g.beginWindowEx("Demo Window", .{ .pos = .{ 10, 10 }, .size = .{ 300, 450 } }, .{})) {
-            defer g.endWindow();
+    pub fn update(self: *Self, window: *kit.Window) !void {
+        self.frame += 1;
 
-            const win = g.getCurrentContainer();
-            win.rect.size = @max(win.rect.size, Vec2{ 240, 300 });
+        if (window.keys['1'] == .down) try self.updateColor(window, 0);
+        if (window.keys['2'] == .down) try self.updateColor(window, 1);
+        if (window.keys['3'] == .down) try self.updateColor(window, 2);
 
-            // window info
-            if (g.mu_header_ex("Window Info", .{})) {
-                const cnt = g.getCurrentContainer();
-                var buf: [64]u8 = undefined;
+        if (window.keys['-'] == .down) try self.resize(window, 100, 100);
+        if (window.keys['='] == .down) try self.resize(window, 320, 240);
+    }
 
-                g.mu_layout_row(2, &.{ 62, -1 }, 0);
-                g.mu_label("Position:");
-                g.mu_label(std.fmt.bufPrint(&buf, "{any}", .{cnt.rect.pos}) catch unreachable);
-                g.mu_label("Size:");
-                g.mu_label(std.fmt.bufPrint(&buf, "{any}", .{cnt.rect.size}) catch unreachable);
-            }
+    pub fn render(self: *Self, framebuffer: []u8) void {
+        if (self.color == 0) {
+            self.draw(std.mem.bytesAsSlice(u32, framebuffer));
+        } else {
+            self.draw(std.mem.bytesAsSlice(u16, framebuffer));
+        }
+    }
 
-            // labels + buttons
-            if (g.mu_header_ex("Test Buttons", .{ .expanded = true })) {
-                g.mu_layout_row(3, &.{ 86, -110, -1 }, 0);
-                g.mu_label("Test buttons 1:");
-                if (g.mu_button("Button 1")) std.debug.print("Pressed button 1\n", .{});
-                if (g.mu_button("Button 2")) std.debug.print("Pressed button 2\n", .{});
-                g.mu_label("Test buttons 2:");
-                if (g.mu_button("Button 3")) std.debug.print("Pressed button 3\n", .{});
-                if (g.mu_button("Popup")) g.openPopup("Test Popup");
-
-                if (g.beginPopup("Test Popup")) {
-                    defer g.endPopup();
-                    _ = g.mu_button("Hello");
-                    _ = g.mu_button("World");
-                }
-            }
-
-            // tree
-            if (g.mu_header_ex("Tree and Text", .{ .expanded = true })) {
-                g.mu_layout_row(2, &.{ 140, -1 }, 0);
-                g.mu_layout_begin_column();
-                if (g.mu_begin_treenode_ex("Test 1", .{})) {
-                    if (g.mu_begin_treenode_ex("Test 1a", .{})) {
-                        g.mu_label("Hello");
-                        g.mu_label("world");
-                        g.mu_end_treenode();
-                    }
-                    if (g.mu_begin_treenode_ex("Test 1b", .{})) {
-                        if (g.mu_button_ex("Button 1", 0, .{})) std.debug.print("Pressed button 1\n", .{});
-                        if (g.mu_button_ex("Button 2", 0, .{})) std.debug.print("Pressed button 2\n", .{});
-                        g.mu_end_treenode();
-                    }
-                    g.mu_end_treenode();
-                }
-                if (g.mu_begin_treenode_ex("Test 2", .{})) {
-                    g.mu_layout_row(2, &.{ 54, 54 }, 0);
-                    if (g.mu_button_ex("Button 3", 0, .{})) std.debug.print("Pressed button 3\n", .{});
-                    if (g.mu_button_ex("Button 4", 0, .{})) std.debug.print("Pressed button 4\n", .{});
-                    if (g.mu_button_ex("Button 5", 0, .{})) std.debug.print("Pressed button 5\n", .{});
-                    if (g.mu_button_ex("Button 6", 0, .{})) std.debug.print("Pressed button 6\n", .{});
-                    g.mu_end_treenode();
-                }
-                if (g.mu_begin_treenode_ex("Test 3", .{})) {
-                    _ = g.mu_checkbox("Checkbox 1", &self.checks[0]);
-                    _ = g.mu_checkbox("Checkbox 2", &self.checks[1]);
-                    _ = g.mu_checkbox("Checkbox 3", &self.checks[2]);
-                    g.mu_end_treenode();
-                }
-                g.mu_layout_end_column();
-
-                g.mu_layout_begin_column();
-                g.mu_layout_row(1, &.{-1}, 0);
-                g.mu_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Maecenas lacinia, sem eu lacinia molestie, mi risus faucibus ipsum, eu varius magna felis a nulla.");
-                g.mu_layout_end_column();
-            }
-
-            // background color sliders
-            if (g.mu_header_ex("Background Color", .{ .expanded = true })) {
-                g.mu_layout_row(2, &.{ -78, -1 }, 74);
-
-                // sliders
-                g.mu_layout_begin_column();
-                g.mu_layout_row(2, &.{ 46, -1 }, 0);
-                g.mu_label("Red:");
-                _ = g.mu_slider(u8, &self.bg[0], 0, 255);
-                g.mu_label("Green:");
-                _ = g.mu_slider(u8, &self.bg[1], 0, 255);
-                g.mu_label("Blue:");
-                _ = g.mu_slider(u8, &self.bg[2], 0, 255);
-                g.mu_layout_end_column();
-
-                // color preview
-                const r = g.mu_layout_next();
-                g.drawRect(r, .{ .r = self.bg[0], .g = self.bg[1], .b = self.bg[2], .a = 255 });
-                var buf: [7]u8 = undefined;
-                const text = std.fmt.bufPrint(&buf, "#{X:0>2}{X:0>2}{X:0>2}", .{ self.bg[0], self.bg[1], self.bg[2] }) catch unreachable;
-                g.drawControlText(text, r, .text, .{ .aligncenter = true });
+    fn draw(self: *Self, pixels: anytype) void {
+        for (0..self.width) |x| {
+            for (0..self.height) |y| {
+                pixels[(y * self.width) + x] = @truncate(x ^ y ^ self.frame);
             }
         }
     }
 
-    pub fn render(_: *Game, _: []Color) void {}
-
-    pub fn event(_: *Game, ev: kit.Event) void {
-        std.debug.print("event: {any}\n", .{ev});
+    fn updateColor(self: *Self, window: *kit.Window, comptime idx: comptime_int) !void {
+        self.color = idx;
+        try window.changeColor(colors[idx]);
     }
 
-    pub fn destroy(_: *Game) void {}
+    fn resize(self: *Self, window: *kit.Window, width: u32, height: u32) !void {
+        self.width = width;
+        self.height = height;
+        try window.resizeFramebuffer(width, height);
+    }
 };
 
 pub fn main() !void {
-    try MyApp.start(.{ .title = "example" });
+    defer _ = gpa.deinit();
+
+    try kit.App(DemoUserContext).start(gpa.allocator(), .{});
 }
