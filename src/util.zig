@@ -1,13 +1,5 @@
 const std = @import("std");
 
-pub fn isValidContext(comptime ctx: type) void {
-    _ = ctx;
-}
-
-pub fn isValidColor(comptime color: type) void {
-    _ = color;
-}
-
 pub const Color = packed struct {
     r: u8,
     g: u8,

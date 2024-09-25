@@ -1,15 +1,14 @@
 const std = @import("std");
-const os = @import("os.zig");
-const math = @import("math.zig");
-const util = @import("util.zig");
+const math = @import("../math.zig");
+const util = @import("../util.zig");
 const assert = std.debug.assert;
 
 const Vec2 = math.Vec2;
 const Rect = math.Rect;
 const Color = math.Color;
 
-pub const Style = @import("mui/style.zig");
-pub const Input = @import("mui/input.zig");
+pub const Style = @import("style.zig");
+pub const Input = @import("input.zig");
 
 const unclipped = Rect{ .size = .{ 0x1000000, 0x1000000 } };
 
