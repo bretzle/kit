@@ -73,5 +73,5 @@ const DemoUserContext = struct {
 pub fn main() !void {
     defer _ = gpa.deinit();
 
-    try kit.App(DemoUserContext).start(gpa.allocator(), .{});
+    try kit.App(DemoUserContext).start(gpa.allocator(), .{ .framebuffer_width = 320, .framebuffer_height = 240 });
 }

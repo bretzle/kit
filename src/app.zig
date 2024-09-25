@@ -11,11 +11,13 @@ pub const math = @import("math.zig");
 
 pub const AppOptions = struct {
     title: [:0]const u8 = "",
-    window_width: i32 = 500,
-    window_height: i32 = 500,
-    framebuffer_width: u32 = 320,
-    framebuffer_height: u32 = 240,
-    scale: i32 = 1,
+    window_width: ?u32 = null,
+    window_height: ?u32 = null,
+    framebuffer_width: u32,
+    framebuffer_height: u32,
+    scale: u32 = 1,
+
+    dark_mode: bool = true,
 };
 
 pub fn App(comptime UserContext: type) type {
@@ -39,8 +41,8 @@ pub fn App(comptime UserContext: type) type {
 
             const win_options = WindowOptions{
                 .title = options.title,
-                .width = options.window_width * options.scale,
-                .height = options.window_height * options.scale,
+                .width = @intCast(options.window_width orelse options.framebuffer_width * options.scale),
+                .height = @intCast(options.window_height orelse options.framebuffer_height * options.scale),
                 .framebuffer = .{
                     .width = options.framebuffer_width,
                     .height = options.framebuffer_height,
@@ -52,6 +54,7 @@ pub fn App(comptime UserContext: type) type {
                         util.colorMask(Color, "a"),
                     },
                 },
+                .dark_mode = options.dark_mode,
             };
 
             const window = try Window.create(allocator, win_options);
@@ -88,6 +91,7 @@ pub const WindowOptions = struct {
         pixel_size: u32,
         pixel_masks: [4]u32,
     },
+    dark_mode: bool,
 };
 
 pub const Window = struct {
@@ -180,6 +184,11 @@ pub const Window = struct {
 
             .allocator = allocator,
         };
+
+        if (options.dark_mode) {
+            _ = os.DwmSetWindowAttribute(hwnd, os.DWMWA_USE_IMMERSIVE_DARK_MODE, &@as(i32, 1), @sizeOf(i32));
+            _ = os.DwmSetWindowAttribute(hwnd, os.DWMWA_WINDOW_CORNER_PREFERENCE, &@as(i32, 3), @sizeOf(i32));
+        }
 
         _ = os.SetWindowLongPtrA(self.hwnd, os.GWLP_USERDATA, @ptrCast(self));
         _ = os.ShowWindow(self.hwnd, os.SW_NORMAL);
