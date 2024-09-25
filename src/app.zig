@@ -8,6 +8,7 @@ pub const RGBA = util.Color;
 pub const Gui = mui.Context;
 pub const png = @import("png.zig");
 pub const math = @import("math.zig");
+pub const log = @import("log.zig");
 
 pub const AppOptions = struct {
     title: [:0]const u8 = "",

@@ -1,5 +1,6 @@
 const std = @import("std");
 const kit = @import("kit");
+const log = kit.log.scoped(.example);
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
@@ -74,4 +75,11 @@ pub fn main() !void {
     defer _ = gpa.deinit();
 
     try kit.App(DemoUserContext).start(gpa.allocator(), .{ .framebuffer_width = 320, .framebuffer_height = 240 });
+
+    log.trace("trace", .{});
+    log.debug("debug", .{});
+    log.info("info", .{});
+    log.warn("warn", .{});
+    log.err("err", .{});
+    log.fatal("fatal", .{});
 }
