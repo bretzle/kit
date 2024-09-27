@@ -19,6 +19,21 @@ pub fn colorMask(comptime Col: type, comptime field: []const u8) u32 {
     return mask << offset;
 }
 
+pub inline fn compileError(
+    comptime format: []const u8,
+    comptime args: anytype,
+) void {
+    @compileError(std.fmt.comptimePrint(format, args));
+}
+
+pub inline fn compileAssert(
+    comptime ok: bool,
+    comptime format: []const u8,
+    comptime args: anytype,
+) void {
+    if (!ok) compileError(format, args);
+}
+
 pub fn Pool(comptime T: type, comptime Id: type, comptime size: comptime_int) type {
     return struct {
         const Self = @This();

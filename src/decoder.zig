@@ -1,19 +1,14 @@
 const std = @import("std");
+const util = @import("util.zig");
 const Field = std.builtin.Type.StructField;
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
 // Things to add
-// - [ ] compile checks/errors
 // - [ ] check that patterns are valid hashes
 // - [ ] prevent executing instructions not covered
-// - [ ] move to standalone library and genericize (CPU -> Context) (possible to have no context?)
-// - [ ] better names + docs
 
 // Things to investigate
-// - [ ] constants instead of fields?
-// - [ ] does alignment matter?
-// - [ ] figure out how to verify decoder works...
 // - [ ] eval quota
 // - [ ] building hash fns from given mask
 // - [ ] non-comptime arguments
@@ -21,11 +16,11 @@ const Field = std.builtin.Type.StructField;
 //////////////////////////////////////////////////////////////////////////////////////////
 
 fn Options(comptime desc: anytype) type {
-    const Desc = @TypeOf(desc);
-    const info = @typeInfo(Desc).Struct;
+    comptime validateDesc(desc);
 
     const options = desc.options;
-    const T = std.meta.Int(.unsigned, info.fields[1].name.len);
+    const handlers = @typeInfo(@TypeOf(desc.handlers)).Struct.fields;
+    const T = std.meta.Int(.unsigned, handlers[0].name.len);
 
     const defaults = struct {
         /// instruction -> index
@@ -45,7 +40,7 @@ fn Options(comptime desc: anytype) type {
         Fn: type = @typeInfo(options.handler).Pointer.child,
         Lut: type = [options.size]options.handler,
         Cpu: type = @typeInfo(@typeInfo(options.handler).Pointer.child).Fn.params[0].type.?,
-        fields: []const Field = info.fields[1..],
+        fields: []const Field = handlers,
 
         hash: fn (T) T = if (@hasDecl(options, "hash")) options.hash else defaults.hash,
         dehash: fn (T) T = if (@hasDecl(options, "dehash")) options.dehash else defaults.dehash,
@@ -217,3 +212,42 @@ const ArgInfo = struct {
         return .{ .masks = &masks, .shifts = &shifts };
     }
 };
+
+fn validateDesc(comptime desc: anytype) void {
+    const Desc = @TypeOf(desc);
+
+    util.compileAssert(@hasField(Desc, "options"), "missing options", .{});
+    util.compileAssert(@typeInfo(desc.options) == .Struct, "options should be a struct type", .{});
+    const options = desc.options;
+
+    util.compileAssert(@hasDecl(options, "handler"), "missing handler", .{});
+    util.compileAssert(@typeInfo(options.handler) == .Pointer, "handler should be a pointer", .{});
+    util.compileAssert(@typeInfo(std.meta.Child(options.handler)) == .Fn, "handler should be a pointer to a function", .{});
+
+    util.compileAssert(@hasDecl(options, "size"), "options requires a size", .{});
+    util.compileAssert(@TypeOf(options.size) == comptime_int, "options.size should be `comptime_int` not `{s}`", .{@typeName(@TypeOf(options.size))});
+
+    inline for ([2][]const u8{ "hash", "dehash" }) |name| {
+        if (@hasDecl(options, name)) {
+            util.compileAssert(@typeInfo(@TypeOf(@field(options, name))) == .Fn, "options.{s} must be a func", .{name});
+        }
+    }
+
+    util.compileAssert(@hasField(Desc, "handlers"), "missing handlers struct", .{});
+    const handlers = desc.handlers;
+    util.compileAssert(@typeInfo(@TypeOf(handlers)) == .Struct, "handlers must be a struct", .{});
+    const fields = @typeInfo(@TypeOf(desc.handlers)).Struct.fields;
+    util.compileAssert(fields.len > 0, "there must be at least 1 handler", .{});
+
+    const handler = options.handler;
+    const bit_size = fields[0].name.len;
+    for (fields, 0..) |field, idx| {
+        const info = @typeInfo(field.type);
+        util.compileAssert(field.name.len == bit_size, "handlers must be the same size ([{d} {s}]) is {d} bits, expected {d} bits", .{ idx, field.name, field.name.len, bit_size });
+        util.compileAssert(
+            field.type == handler or field.type == std.meta.Child(handler) or info == .Fn,
+            "handler ([{d}] {s}) must be the same as `options.handler` or a func that returns `options.handler` got {s}",
+            .{ idx, field.name, @typeName(field.type) },
+        );
+    }
+}
