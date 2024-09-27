@@ -1,6 +1,6 @@
 const std = @import("std");
 const math = @import("../math.zig");
-const util = @import("../util.zig");
+const pool = @import("pool.zig");
 const assert = std.debug.assert;
 
 const Vec2 = math.Vec2;
@@ -139,8 +139,8 @@ pub const Context = struct {
     text_stack: std.BoundedArray(u8, 16384) = .{},
 
     // retained pools
-    container_pool: util.Pool(Container, Id, 16) = undefined,
-    treenode_pool: util.Pool(void, Id, 16) = undefined,
+    container_pool: pool.Pool(Container, Id, 16) = undefined,
+    treenode_pool: pool.Pool(void, Id, 16) = undefined,
 
     // input state
     input: Input = .{},

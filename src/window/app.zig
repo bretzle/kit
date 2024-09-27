@@ -1,5 +1,6 @@
 const std = @import("std");
 const win = @import("window.zig");
+const math = @import("../math.zig");
 const util = @import("../util.zig");
 const assert = std.debug.assert;
 
@@ -24,7 +25,7 @@ pub fn App(comptime UserContext: type) type {
         assert(@hasDecl(UserContext, "destroy"));
     }
 
-    const Color = if (@hasDecl(UserContext, "color")) UserContext.color else util.Color;
+    const Color = if (@hasDecl(UserContext, "color")) UserContext.color else math.Color;
 
     return struct {
         const Self = @This();
