@@ -55,7 +55,7 @@ pub fn decode(comptime desc: anytype) type {
     const inner = struct {
         fn run() options.Lut {
             @setEvalBranchQuota(0x69696969);
-            var ret: options.Lut = undefined;
+            var ret: options.Lut = .{unknown} ** desc.options.size;
 
             var sorted = std.meta.fieldNames(@TypeOf(casks)).*;
             std.mem.sort([:0]const u8, &sorted, {}, compare);
@@ -72,6 +72,11 @@ pub fn decode(comptime desc: anytype) type {
             }
 
             return ret;
+        }
+
+        fn unknown(_: options.Cpu) (@typeInfo(std.meta.Child(options.Handler)).Fn.return_type orelse void) {
+            @breakpoint();
+            unreachable;
         }
 
         fn compare(_: void, lhs: []const u8, rhs: []const u8) bool {
